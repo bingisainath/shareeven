@@ -15,6 +15,7 @@ import asyncio
 import logging
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -210,13 +211,33 @@ def without_summary_lines(data: ReceiptExtraction) -> ReceiptExtraction:
     return data
 
 
+# What the uploader sees while a receipt is read (receipt_scan_progress events, and "progress" on the receipt)
+SCAN_STEPS = {
+    "ocr": "Reading the text on the receipt",
+    "items": "Finding the items and discounts",
+    "photo": "Reading the receipt photo",
+    "second_look": "Taking a closer look at the photo",
+    "totals": "Checking everything adds up",
+}
+# Latest step per receipt being read. In-process only: another API worker shows no step, which is fine.
+SCAN_PROGRESS: dict[uuid.UUID, str] = {}
+
+Step = Callable[[str], Awaitable[None]]
+
+
+async def _no_step(step: str) -> None:
+    return None
+
+
 def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
     return bool(settings.RECEIPT_OCR_MODEL) and receipt.provider == "anthropic" \
         and hasattr(extractor, "extract_text") and ocr.available()
 
 
-async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str) -> tuple[list, ExtractionResult | None, dict]:
+async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str,
+                         step: Step = _no_step) -> tuple[list, ExtractionResult | None, dict]:
     """OCR on our CPU, then the cheap text model. (pages, None, notes) when that didn't work."""
+    await step("ocr")
     try:
         pages = await ocr.read_photos(photos)
     except Exception:
@@ -232,6 +253,7 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         logger.info("Receipt %s: OCR not clear enough (%s), reading the photos instead", receipt.id, notes["ocr"])
         notes["ocr"]["rejected"] = {"reason": "photo too unclear for OCR"}
         return pages, None, notes
+    await step("items")
     try:
         result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key)
     except Exception as e:  # whatever went wrong, the photos are still there to read
@@ -300,18 +322,20 @@ def _save_debug(receipt: Receipt, pages: list, cheap: ExtractionResult | None, f
         logger.exception("Receipt %s: couldn't write the OCR debug files", receipt.id)
 
 
-async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: list[bytes], api_key: str) -> ExtractionResult:
+async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: list[bytes], api_key: str,
+                       step: Step = _no_step) -> ExtractionResult:
     """
     Cheap path first: OCR text -> cheaper text model (~2-3 cents). Trusted when its lines add up
     to the printed total; otherwise the photos go to the model the admins chose, as before.
     """
     if not _ocr_path_on(receipt, extractor):
+        await step("photo")
         images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
         result = await extractor.extract(images, receipt.note, receipt.model, api_key)
         result.data = without_summary_lines(result.data)
         return result
 
-    pages, cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key)
+    pages, cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key, step)
     if cheap is not None:
         cheap.data = without_summary_lines(cheap.data)
         if adds_up(cheap.data):
@@ -322,6 +346,7 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
         logger.info("Receipt %s: OCR read doesn't add up (%s), reading the photos with %s",
                     receipt.id, notes["ocr"]["rejected"], receipt.model)
 
+    await step("second_look" if cheap is not None else "photo")
     images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
     try:
         result = await extractor.extract(images, receipt.note, receipt.model, api_key)
@@ -349,9 +374,25 @@ async def run_scan(receipt_id: uuid.UUID, api_key: str) -> None:
         if receipt is None:
             return
         extractor = EXTRACTORS[receipt.provider]
+
+        async def step(name: str) -> None:
+            SCAN_PROGRESS[receipt_id] = name
+            if receipt.uploaded_by:
+                try:
+                    await publish_users([str(receipt.uploaded_by)], {
+                        "type": "receipt_scan_progress",
+                        "conversationId": str(receipt.conversation_id),
+                        "receiptId": str(receipt_id),
+                        "step": name,
+                        "label": SCAN_STEPS[name],
+                    })
+                except Exception:
+                    logger.warning("Receipt %s: couldn't send scan progress", receipt_id, exc_info=True)
+
         try:
             photos = await asyncio.to_thread(_read_photos, receipt.image_urls)
-            result = await read_receipt(receipt, extractor, photos, api_key)
+            result = await read_receipt(receipt, extractor, photos, api_key, step)
+            await step("totals")
             receipt.model = result.model or receipt.model
             receipt.usage = result.usage
             await apply_extraction(db, receipt, result.data)
@@ -360,6 +401,7 @@ async def run_scan(receipt_id: uuid.UUID, api_key: str) -> None:
         except Exception:
             logger.exception("Receipt scan %s crashed", receipt_id)
             receipt.status, receipt.error = "failed", "Something went wrong reading this receipt. Try again"
+        SCAN_PROGRESS.pop(receipt_id, None)
         receipt.updated_at = datetime.now(timezone.utc)
         await db.commit()
         logger.info("Receipt %s scanned with %s (%s key): %s", receipt_id, receipt.model, receipt.key_source, receipt.status)
@@ -783,6 +825,9 @@ def serialize(receipt: Receipt) -> dict:
         "conversation_id": str(receipt.conversation_id),
         "uploaded_by": str(receipt.uploaded_by) if receipt.uploaded_by else None,
         "status": receipt.status,
+        # While it's being read: the current step, e.g. {"step": "items", "label": "Finding the items and discounts"}
+        "progress": ({"step": SCAN_PROGRESS[receipt.id], "label": SCAN_STEPS[SCAN_PROGRESS[receipt.id]]}
+                     if receipt.status == "processing" and receipt.id in SCAN_PROGRESS else None),
         "error": receipt.error,
         "images": [media_storage.sign_url(u) for u in receipt.image_urls or []],
         "note": receipt.note,

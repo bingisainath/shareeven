@@ -53,7 +53,7 @@ import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
 import { fetchConversations, fetchMessages, flagUnverified } from './chatActions';
-import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT, EXPENSE_CHANGED_EVENT, RECEIPT_READY_EVENT } from '../../utils/events';
+import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT, EXPENSE_CHANGED_EVENT, RECEIPT_PROGRESS_EVENT, RECEIPT_READY_EVENT } from '../../utils/events';
 import { notifyNewMessage } from '../../utils/notifications';
 
 // import { clearUnreadCount } from '../slices/chatSlice';
@@ -868,6 +868,11 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Someone in a chat reminded us that we owe them
   wsService.on('expense_reminder', (data) => {
     if (typeof data.text === 'string') toast.info(data.text, { autoClose: 8000 });
+  });
+
+  // The AI moved on to the next step of reading our receipt (the scan screen shows it)
+  wsService.on('receipt_scan_progress', (data) => {
+    window.dispatchEvent(new CustomEvent(RECEIPT_PROGRESS_EVENT, { detail: data }));
   });
 
   // The AI finished reading a receipt we uploaded

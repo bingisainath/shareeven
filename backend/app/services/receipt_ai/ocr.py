@@ -14,6 +14,7 @@ import asyncio
 import io
 import logging
 import math
+import re
 import statistics
 import threading
 import time
@@ -93,12 +94,36 @@ def _span(box, axis: int) -> float:
     return max(p[axis] for p in box) - min(p[axis] for p in box)
 
 
+ITEM_ROW = re.compile(r"^\d+(?:[.,]\d+)?\s+\S*[A-Za-z]")  # "1 Barilla ...", "0.595 Bananas"
+# Discount lines printed under an item (not summary lines like "Savings", whose minus may have faded)
+DISCOUNT_ROW = re.compile(r"^(cc\b|special offer|clubcard price|reduced|price cut|rabatt)", re.IGNORECASE)
+MINUS_AMOUNT = re.compile(r"^[-\u2212]\s?[€$£₹]?\d")
+PLUS_AMOUNT = re.compile(r"^[€$£₹]?\d+[.,]\d{2}$")
+
+
+def _mismatch(row: list[dict], other: list[dict], minus_printed: bool) -> bool:
+    """
+    A lone amount next to the wrong kind of row: minus on an item line, or a price on a discount
+    line. The second only counts when this receipt shows minus signs at all (faded print loses them).
+    """
+    if len(other) != 1:
+        return False
+    amount, start = other[0]["text"].strip(), min(row, key=lambda p: p["x"])["text"].strip()
+    if MINUS_AMOUNT.match(amount):
+        return bool(ITEM_ROW.match(start))
+    if PLUS_AMOUNT.match(amount) and minus_printed:
+        return bool(DISCOUNT_ROW.match(start))
+    return False
+
+
 def layout(boxes, texts, scores) -> tuple[str, list[dict]]:
     """
     Group OCR pieces into printed rows and place each at its column, so tables keep their shape.
     Receipts curl, so one angle for the whole photo puts prices half a row off. Instead each row
-    follows the slant of its own widest piece (the item text): a price joins the row whose line,
-    extended to the right, passes through it.
+    follows the slant of its widest piece, and closest pairs join first: a price joins the row whose
+    line, extended to the right, passes closest to it. A box's slant can be a few pixels off, so
+    what the text says breaks near-ties: a minus amount belongs on a discount row, a price on an
+    item row (_mismatch).
     """
     pieces = []
     for box, text, score in zip(boxes, texts, scores):
@@ -114,24 +139,39 @@ def layout(boxes, texts, scores) -> tuple[str, list[dict]]:
         return "", []
 
     line_h = statistics.median(p["h"] for p in pieces)
+    minus_printed = any(MINUS_AMOUNT.match(p["text"].strip()) for p in pieces)
 
     def y_at(row: list[dict], x: float) -> float:
         anchor = max(row, key=lambda p: p["w"])
         return anchor["cy"] + anchor["slope"] * (x - anchor["cx"])
 
-    rows: list[list[dict]] = []
-    for p in sorted(pieces, key=lambda p: p["x"]):
-        best, best_gap = None, line_h * 0.5
-        for row in rows:
-            if p["x"] < max(q["right"] for q in row) - line_h * 0.3:
-                continue  # overlaps what's already on that row
-            gap = abs(p["cy"] - y_at(row, p["cx"]))
-            if gap < best_gap:
-                best, best_gap = row, gap
+    def gap(a: list[dict], b: list[dict]) -> float | None:
+        """How far b sits from a's line (a = the row with the wider piece); None if they overlap."""
+        if any(p["x"] < q["right"] - line_h * 0.3 and q["x"] < p["right"] - line_h * 0.3 for p in a for q in b):
+            return None
+        if max(p["w"] for p in b) > max(p["w"] for p in a):
+            a, b = b, a
+        distance = max(abs(q["cy"] - y_at(a, q["cx"])) for q in b)
+        return distance + (line_h * 0.4 if _mismatch(a, b, minus_printed) else 0)
+
+    # Closest pairs merge first across the whole receipt, so a price joins the row it fits best
+    # even when a neighbouring row's discount sits a few pixels further left.
+    rows: list[list[dict]] = [[p] for p in sorted(pieces, key=lambda p: p["cy"])]
+    while True:
+        best = None
+        for i, a in enumerate(rows):
+            a_cy = statistics.mean(p["cy"] for p in a)
+            for j in range(i + 1, len(rows)):
+                b = rows[j]
+                if abs(statistics.mean(p["cy"] for p in b) - a_cy) > line_h * 2:
+                    continue
+                g = gap(a, b)
+                if g is not None and g < line_h * 0.6 and (best is None or g < best[0]):
+                    best = (g, i, j)
         if best is None:
-            rows.append([p])
-        else:
-            best.append(p)
+            break
+        _, i, j = best
+        rows[i] += rows.pop(j)
 
     left = min(p["x"] for p in pieces)
     rows.sort(key=lambda row: y_at(row, left))

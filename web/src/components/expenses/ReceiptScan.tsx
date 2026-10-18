@@ -2,13 +2,13 @@
 // Pick receipt photos -> upload -> the AI reads them in the background -> review.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, Check } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
-import type { Expense, Receipt } from '../../services/expense.service';
+import type { Expense, Receipt, ScanStep } from '../../services/expense.service';
 import { mediaService } from '../../services/media.service';
 import { parseApiError } from '../../utils/apiError';
-import { RECEIPT_READY_EVENT } from '../../utils/events';
+import { RECEIPT_PROGRESS_EVENT, RECEIPT_READY_EVENT } from '../../utils/events';
 import { mediaTypeOf, resolveMediaUrl, validateFile } from '../../utils/media';
 import ReceiptReview from './ReceiptReview';
 import type { Member } from './shared';
@@ -32,8 +32,14 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
   const [busy, setBusy] = useState<'idle' | 'uploading' | 'reading'>(receiptId ? 'reading' : 'idle');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [drafts, setDrafts] = useState<Awaited<ReturnType<typeof expenseService.openReceipts>>>([]);
+  const [steps, setSteps] = useState<ScanStep[]>([]); // what the AI has done so far, the last one in progress
+  const [seconds, setSeconds] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const currentId = useRef<string | undefined>(receiptId);
+
+  const addStep = useCallback((next: ScanStep) => {
+    setSteps((current) => (current.some((s) => s.step === next.step) ? current : [...current, next]));
+  }, []);
 
   useEffect(() => {
     if (receiptId) return;
@@ -49,10 +55,13 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
   const load = useCallback(async (id: string) => {
     const r = await expenseService.getReceipt(id);
     if (currentId.current !== id) return;
-    if (r.status === 'processing') return;
+    if (r.status === 'processing') {
+      if (r.progress) addStep(r.progress);
+      return;
+    }
     setReceipt(r);
     setBusy('idle');
-  }, []);
+  }, [addStep]);
 
   // Done when the server says so (WebSocket), with a slow poll as a safety net
   useEffect(() => {
@@ -63,14 +72,24 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
     const onReady = (e: Event) => {
       if ((e as CustomEvent).detail?.receiptId === id) load(id).catch(() => undefined);
     };
+    const onProgress = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.receiptId === id && detail.step && detail.label) addStep({ step: detail.step, label: detail.label });
+    };
     window.addEventListener(RECEIPT_READY_EVENT, onReady);
+    window.addEventListener(RECEIPT_PROGRESS_EVENT, onProgress);
     const poll = setInterval(() => load(id).catch(() => undefined), 5000);
+    const started = Date.now();
+    setSeconds(0);
+    const tick = setInterval(() => setSeconds(Math.round((Date.now() - started) / 1000)), 1000);
     return () => {
       window.removeEventListener(RECEIPT_READY_EVENT, onReady);
+      window.removeEventListener(RECEIPT_PROGRESS_EVENT, onProgress);
       clearInterval(poll);
+      clearInterval(tick);
       if ((window as any).__waitingForReceiptId === id) (window as any).__waitingForReceiptId = null;
     };
-  }, [busy, load]);
+  }, [busy, load, addStep]);
 
   const pick = (list: FileList | null) => {
     if (!list) return;
@@ -89,6 +108,7 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
       const uploaded = await Promise.all(files.map((f) => mediaService.upload(f)));
       const created = await expenseService.scanReceipt(conversationId, uploaded.map((u) => u.url), note.trim());
       currentId.current = created.id;
+      setSteps([]);
       setBusy('reading');
     } catch (error) {
       toast.error(parseApiError(error));
@@ -102,6 +122,7 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
       await expenseService.retryReceipt(receipt.id);
       currentId.current = receipt.id;
       setReceipt(null);
+      setSteps([]);
       setBusy('reading');
     } catch (error) {
       toast.error(parseApiError(error));
@@ -113,7 +134,22 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
       <div className="py-16 text-center">
         <div className="mx-auto mb-4 w-12 h-12 rounded-full border-4 border-primary-200 border-t-primary-600 animate-spin" />
         <p className="font-medium text-muted-900">Reading the receipt…</p>
-        <p className="text-sm text-muted-500 mt-1">This usually takes 10–40 seconds. You can close this; we’ll let you know when it’s ready.</p>
+        <p className="text-sm text-muted-500 mt-1">{seconds > 0 && `${seconds}s · `}This usually takes 10–40 seconds. You can close this; we’ll let you know when it’s ready.</p>
+        {steps.length > 0 && (
+          <ol className="mt-5 mx-auto max-w-xs space-y-2 text-left" aria-live="polite">
+            {steps.map((s, i) => {
+              const done = i < steps.length - 1;
+              return (
+                <li key={s.step} className="flex items-center gap-2 text-sm">
+                  {done
+                    ? <Check className="w-4 h-4 flex-shrink-0 text-success-600" aria-label="Done" />
+                    : <span className="w-4 h-4 flex-shrink-0 rounded-full border-2 border-primary-200 border-t-primary-600 animate-spin" aria-hidden />}
+                  <span className={done ? 'text-muted-500' : 'font-medium text-muted-900'}>{s.label}</span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
         <button type="button" onClick={onClose} className="mt-6 text-sm text-primary-700 hover:underline">Close and wait in the background</button>
       </div>
     );

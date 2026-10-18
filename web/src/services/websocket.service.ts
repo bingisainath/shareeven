@@ -37,7 +37,7 @@ export interface OutgoingMedia {
 export interface WebSocketEvent {
   type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'presence'
     | 'conversation_created' | 'conversation_updated' | 'conversation_removed' | 'conversation_pinned'
-    | 'message_updated' | 'reactions_updated' | 'expense_changed' | 'receipt_scan_ready' | 'error';
+    | 'message_updated' | 'reactions_updated' | 'expense_changed' | 'receipt_scan_ready' | 'receipt_scan_progress' | 'error';
   roomId?: string;
   userId?: string;
   userIds?: string[];

@@ -10,7 +10,7 @@ import { Camera, Images, X } from 'lucide-react-native';
 import Avatar from '../../components/common/Avatar';
 import { Banner, Button } from '../../components/common/ui';
 import { api, errorMessage } from '../../api/client';
-import { expenseService, Receipt, ReceiptUpdate } from '../../api/expenses';
+import { expenseService, Receipt, ReceiptUpdate, ScanStep } from '../../api/expenses';
 import { onServerEvent } from '../../store/chat';
 import { useAuth } from '../../store/auth';
 import { formatMinor, parseMajor, toMajorString } from '../../utils/money';
@@ -18,7 +18,7 @@ import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { memberName, useChatMoney } from '../../hooks/useMembers';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
-import { AlertTriangle, CheckCircle2, ChevronDown, Pencil, Plus, Sparkles } from 'lucide-react-native';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Pencil, Plus, Sparkles } from 'lucide-react-native';
 import { AdjustmentDraft, AdjustmentEditor, DISCOUNT_KINDS, ItemDraft, ItemEditor, kindLabel } from '../../components/expenses/ReceiptEditors';
 import { showAlert } from '../../components/common/Dialog';
 
@@ -60,6 +60,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const [stage, setStage] = useState<'pick' | 'uploading' | 'reading' | 'review'>(route.params.receiptId ? 'reading' : 'pick');
   const [receiptId, setReceiptId] = useState<string | undefined>(route.params.receiptId);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [steps, setSteps] = useState<ScanStep[]>([]); // what the AI has done so far, the last one in progress
+  const [seconds, setSeconds] = useState(0);
   const [draft, setDraft] = useState<ReceiptUpdate | null>(null);
   const [pickingCurrency, setPickingCurrency] = useState(false);
   const [editingTotal, setEditingTotal] = useState(false);
@@ -90,6 +92,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
       for (const photo of photos) urls.push(await uploadPhoto(photo));
       const created = await expenseService.scanReceipt(conversationId, urls, note.trim());
       setReceiptId(created.id);
+      setSteps([]);
       setStage('reading');
     } catch (e) {
       showAlert("Couldn't start the scan", errorMessage(e));
@@ -98,22 +101,36 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   };
 
   // ---- 2. wait for the AI (WebSocket event, with a slow poll as a safety net)
+  const addStep = useCallback((next: ScanStep) => {
+    setSteps((current) => (current.some((s) => s.step === next.step) ? current : [...current, next]));
+  }, []);
+
   const check = useCallback(async () => {
     if (!receiptId) return;
     const r = await expenseService.getReceipt(receiptId);
-    if (r.status === 'processing') return;
+    if (r.status === 'processing') {
+      if (r.progress) addStep(r.progress);
+      return;
+    }
     setReceipt(r);
     setDraft(toDraft(r));
     setStage('review');
-  }, [receiptId]);
+  }, [receiptId, addStep]);
 
   useEffect(() => {
     if (stage !== 'reading' || !receiptId) return;
     check().catch(() => undefined);
-    const off = onServerEvent((e) => { if (e.type === 'receipt_scan_ready' && e.receiptId === receiptId) check().catch(() => undefined); });
+    const off = onServerEvent((e) => {
+      if (e.receiptId !== receiptId) return;
+      if (e.type === 'receipt_scan_ready') check().catch(() => undefined);
+      if (e.type === 'receipt_scan_progress' && e.step && e.label) addStep({ step: e.step, label: e.label });
+    });
     const poll = setInterval(() => check().catch(() => undefined), 5000);
-    return () => { off(); clearInterval(poll); };
-  }, [stage, receiptId, check]);
+    const started = Date.now();
+    setSeconds(0);
+    const tick = setInterval(() => setSeconds(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => { off(); clearInterval(poll); clearInterval(tick); };
+  }, [stage, receiptId, check, addStep]);
 
   // ---- 3. review: every change is saved and recalculated on the server
   const change = (update: (d: ReceiptUpdate) => ReceiptUpdate) => {
@@ -227,7 +244,20 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.primary700} />
         <Text style={styles.waitTitle}>{stage === 'uploading' ? 'Uploading…' : 'Reading the receipt…'}</Text>
-        <Text style={styles.waitText}>This usually takes 10–40 seconds.</Text>
+        <Text style={styles.waitText}>{stage === 'reading' && seconds > 0 ? `${seconds}s · ` : ''}This usually takes 10–40 seconds.</Text>
+        {stage === 'reading' && steps.length > 0 && (
+          <View style={styles.steps} accessibilityLiveRegion="polite">
+            {steps.map((s, i) => {
+              const done = i < steps.length - 1;
+              return (
+                <View key={s.step} style={styles.stepRow}>
+                  {done ? <Check size={16} color={colors.success600} /> : <ActivityIndicator size="small" color={colors.primary600} />}
+                  <Text style={[styles.stepText, done && styles.stepDone]}>{s.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
     );
   }
@@ -549,6 +579,10 @@ const styles = StyleSheet.create({
   pickRow: { flexDirection: 'row', gap: space(2) },
   waitTitle: { marginTop: space(4), fontSize: 17, fontWeight: '600', color: colors.muted900, textAlign: 'center' },
   waitText: { marginTop: space(1), fontSize: 14, color: colors.muted500, textAlign: 'center' },
+  steps: { marginTop: space(5), gap: space(2), alignSelf: 'stretch', maxWidth: 320, marginHorizontal: 'auto' },
+  stepRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
+  stepText: { fontSize: 14, fontWeight: '600', color: colors.muted900 },
+  stepDone: { fontWeight: '400', color: colors.muted500 },
   store: { flex: 1, fontSize: 20, fontWeight: '700', color: colors.muted900 },
   header: { flexDirection: 'row', alignItems: 'center', gap: space(2), marginBottom: space(2) },
   currency: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.full, borderWidth: 1, borderColor: colors.primary200, backgroundColor: colors.primary50 },

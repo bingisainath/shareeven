@@ -678,3 +678,24 @@ async def test_no_thinking_setting_on_models_that_always_think(monkeypatch):
     assert sent[0]["thinking"] == {"type": "disabled"} and "output_config" not in sent[0]
     assert sent[1]["thinking"] == {"type": "adaptive"} and sent[1]["output_config"] == {"effort": "low"}
     assert sent[0]["max_tokens"] == settings.RECEIPT_OCR_MAX_TOKENS
+
+
+async def test_the_uploader_sees_each_step_of_the_scan(client, six, ocr_ai, events, monkeypatch):
+    people, group = await six()
+
+    def steps():
+        return [p["step"] for _, p in events if p.get("type") == "receipt_scan_progress"]
+
+    await scan(client, people[0], group)
+    assert steps() == ["ocr", "items", "totals"]
+
+    events.clear()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    await scan(client, people[0], group)
+    assert steps() == ["ocr", "items", "second_look", "totals"]
+
+    events.clear()
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "")
+    receipt = await scan(client, people[0], group)
+    assert steps() == ["photo", "totals"]
+    assert receipt["progress"] is None and pipeline.SCAN_PROGRESS == {}  # cleared once done

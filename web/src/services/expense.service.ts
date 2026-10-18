@@ -165,11 +165,17 @@ export interface ReceiptAdjustment {
   enabled: boolean;
 }
 
+export interface ScanStep {
+  step: 'ocr' | 'items' | 'photo' | 'second_look' | 'totals';
+  label: string;
+}
+
 export interface Receipt {
   id: string;
   conversation_id: string;
   uploaded_by: string | null;
   status: 'processing' | 'ready' | 'needs_review' | 'failed' | 'saved';
+  progress: ScanStep | null; // while processing: the step it's on
   error: string | null;
   images: string[];
   note: string | null;
