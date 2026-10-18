@@ -4,9 +4,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { AlertTriangle, CheckCircle2, Plus, Sparkles, Tag, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Plus, ScanLine, Sparkles, Tag, Trash2, X } from 'lucide-react';
 import { CATEGORIES, expenseService } from '../../services/expense.service';
 import CategoryIcon from './CategoryIcon';
+import ReceiptLine from './ReceiptLine';
+import { RECEIPT_CATEGORIES, categoryLabel } from '../../utils/receiptCategories';
 import type { Expense, Receipt, ReceiptAdjustment, ReceiptUpdate } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
@@ -82,6 +84,8 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   const [server, setServer] = useState<Receipt>(initial);
   const [draft, setDraft] = useState<Draft>(() => toDraft(initial));
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [lineShown, setLineShown] = useState<Record<number, boolean>>({}); // the printed line under an item
+  const [painter, setPainter] = useState<string | null>(null); // quick assign: tapping an item toggles this person
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -339,14 +343,20 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         </div>
       )}
 
-      {/* Everyone in this expense: tap someone to add them to every item, or take them off */}
-      <div>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-muted-500">People in this expense</h3>
+      {/* Who was there: tap someone who wasn't to take them off every item (tap again to add them back) */}
+      <div role="group" aria-label="Who was there">
+        <h3 className="mb-1 text-xs font-bold uppercase tracking-[0.1em] text-muted-500">Who was there?</h3>
+        <p className="mb-2 text-xs text-muted-500">Tap someone who wasn’t to take them off every item.</p>
         <div className="flex flex-wrap gap-3">
           {members.map((m) => (
             <PersonToggle key={m.id} member={m} selected={inExpense(m.id)} onToggle={() => toggleEverywhere(m.id)} label={nameOf(m.id)} />
           ))}
         </div>
+        {members.some((m) => !inExpense(m.id)) && (
+          <p className="mt-2 text-xs text-muted-600">
+            Not on this bill: {members.filter((m) => !inExpense(m.id)).map((m) => nameOf(m.id)).join(', ')}
+          </p>
+        )}
       </div>
 
       {/* Quick assign */}
@@ -355,6 +365,28 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         <div className="flex gap-1.5">
           <button type="button" onClick={() => assignAll(members.map((m) => m.id))} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-muted-200 text-muted-600 hover:bg-muted-50">Everyone</button>
           <button type="button" onClick={() => assignAll([])} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-muted-200 text-muted-600 hover:bg-muted-50">Clear</button>
+        </div>
+      </div>
+
+      {/* Quick assign: pick a person, then tap their items */}
+      <div role="group" aria-label="Quick assign" className={`rounded-xl border p-3 ${painter ? 'border-primary-300 bg-primary-50' : 'border-muted-200'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-700">
+            {painter
+              ? <><b className="text-primary-800">Tap items for {nameOf(painter)}</b> <span className="text-muted-500">· tap again to take them off</span></>
+              : 'Quick assign: pick a person, then tap their items.'}
+          </p>
+          {painter && (
+            <button type="button" onClick={() => setPainter(null)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full bg-primary-600 text-white">
+              <X size={12} /> Done
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2.5 mt-2">
+          {members.filter((m) => inExpense(m.id) || painter === m.id).map((m) => (
+            <PersonToggle key={m.id} member={m} size="xs" label={nameOf(m.id)} selected={painter === m.id}
+              onToggle={() => setPainter(painter === m.id ? null : m.id)} />
+          ))}
         </div>
       </div>
 
@@ -367,13 +399,24 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
           const voided = item.flags.includes('voided');
           const lowConfidence = serverItem?.confidence !== null && serverItem?.confidence !== undefined && serverItem.confidence < 0.6;
           const byQuantity = item.split_mode !== 'equal';
+          const box = serverItem?.source_box;
+          const photoOfLine = box ? server.images[box.photo] : undefined;
+          const showLine = !!photoOfLine && (lineShown[n] ?? lowConfidence);
+          const painted = !!painter && item.assignments.some((a) => a.user_id === painter);
           return (
             <li
               key={n}
-              className={`p-3.5 rounded-[14px] border ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : expanded === n ? 'border-primary-300 bg-white shadow-card' : 'border-muted-200 bg-white'} ${voided ? 'opacity-50' : ''}`}
+              onClick={painter && !voided ? (e) => {
+                if ((e.target as HTMLElement).closest('button, input, select, a, label')) return;
+                togglePerson(n, painter);
+              } : undefined}
+              className={`p-3.5 rounded-[14px] border ${painter && !voided ? 'cursor-pointer' : ''} ${painted ? 'ring-2 ring-primary-400' : ''} ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : expanded === n ? 'border-primary-300 bg-white shadow-card' : 'border-muted-200 bg-white'} ${voided ? 'opacity-50' : ''}`}
             >
               <div className="flex items-start gap-2">
-                <button type="button" className="flex-1 min-w-0 text-left" onClick={() => setExpanded(expanded === n ? null : n)} aria-expanded={expanded === n} title="Edit this line">
+                <button type="button" className="flex-1 min-w-0 text-left"
+                  onClick={() => (painter && !voided ? togglePerson(n, painter) : setExpanded(expanded === n ? null : n))}
+                  aria-expanded={painter ? undefined : expanded === n}
+                  title={painter ? `${painted ? 'Take' : 'Put'} ${nameOf(painter)} ${painted ? 'off' : 'on'} this line` : 'Edit this line'}>
                   <p className={`font-medium text-muted-900 truncate ${voided ? 'line-through' : ''}`}>
                     {item.quantity !== '1' && <span className="text-muted-500">{item.quantity}{item.unit !== 'each' ? item.unit : '×'} </span>}
                     {item.name}
@@ -385,14 +428,22 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
                     {itemAdjustments(n).map(({ a, idx }) => (
                       <span key={idx} className="px-1.5 py-0.5 text-[10px] rounded bg-success-100 text-success-800">{a.label} {a.amount}</span>
                     ))}
+                    {item.category && <span className="px-1.5 py-0.5 text-[10px] rounded bg-muted-100 text-muted-600">{categoryLabel(item.category)}</span>}
                     {serverItem?.suggestion && <span className="text-[10px] text-primary-600">{serverItem.suggestion}</span>}
                   </div>
                 </button>
                 <div className="text-right flex-shrink-0">
                   {net !== gross && <Money minor={gross} currency={currency} className="block text-xs text-muted-400 line-through" />}
                   <Money minor={net} currency={currency} className="font-bold text-muted-900" />
+                  {photoOfLine && (
+                    <button type="button" onClick={() => setLineShown((s) => ({ ...s, [n]: !showLine }))} aria-expanded={showLine}
+                      className="mt-0.5 ml-auto flex items-center gap-1 text-[11px] font-medium text-primary-700 hover:underline">
+                      <ScanLine size={12} /> {showLine ? 'Hide' : 'On receipt'}
+                    </button>
+                  )}
                 </div>
               </div>
+              {showLine && photoOfLine && box && <ReceiptLine src={resolveMediaUrl(photoOfLine) || photoOfLine} box={box} className="mt-2" />}
 
               {/* Who is this for? */}
               {!voided && (
@@ -431,6 +482,13 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
                   </label>
                   <label className="flex items-center gap-2 justify-end">Price
                     <MoneyInput value={item.price} currency={currency} onChange={(price) => setItem(n, { price })} className="w-24 py-1.5" ariaLabel="Line price" />
+                  </label>
+                  <label className="col-span-2 flex items-center gap-2">Category
+                    <select value={item.category || ''} onChange={(e) => setItem(n, { category: e.target.value || null })}
+                      className="flex-1 px-2 py-1.5 rounded-lg border border-muted-300 bg-white">
+                      <option value="">None</option>
+                      {RECEIPT_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    </select>
                   </label>
                   <div className="col-span-2 flex flex-wrap gap-1.5">
                     {Object.entries(FLAG_LABELS).map(([flag, label]) => (

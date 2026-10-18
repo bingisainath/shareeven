@@ -40,17 +40,18 @@ def make_client(api_key: str, **options) -> anthropic.AsyncAnthropic:
 class ClaudeExtractor(ReceiptExtractor):
     provider = "anthropic"
 
-    async def extract(self, images, note, model, api_key) -> ExtractionResult:
+    async def extract(self, images, note, model, api_key, hints: str | None = None) -> ExtractionResult:
         content = [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
             for media_type, data in images
         ]
-        content.append({"type": "text", "text": user_text(note, len(images))})
+        content.append({"type": "text", "text": user_text(note, len(images), hints)})
         return await self._read(content, SYSTEM_PROMPT, model, api_key, settings.RECEIPT_AI_EFFORT)
 
-    async def extract_text(self, pages: list[str], note: str | None, model: str, api_key: str) -> ExtractionResult:
+    async def extract_text(self, pages: list[str], note: str | None, model: str, api_key: str,
+                           hints: str | None = None) -> ExtractionResult:
         """The cheap path: the receipt as OCR text (app/services/receipt_ai/ocr.py), no photos."""
-        content = [{"type": "text", "text": ocr_user_text(pages, note)}]
+        content = [{"type": "text", "text": ocr_user_text(pages, note, hints)}]
         # Capped: a failed cheap read is followed by the photo model, so it must stay cheap
         return await self._read(content, SYSTEM_PROMPT + OCR_NOTES, model, api_key, settings.RECEIPT_OCR_EFFORT,
                                 max_tokens=settings.RECEIPT_OCR_MAX_TOKENS)

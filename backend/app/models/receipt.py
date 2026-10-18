@@ -8,7 +8,7 @@ line is for. The split engine (app/services/split_engine.py) turns this into sha
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -86,6 +86,9 @@ class ReceiptItem(Base):
     # [{"user_id": ..., "value": "1"}] - value = units (quantity) or weight; ignored for equal
     assignments: Mapped[list] = mapped_column(JSONB, default=list)
     ai_suggestion_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Where the line is printed: {"photo": index into image_urls, "box": [x0, y0, x1, y1] as fractions of
+    # the photo, "turned": degrees to turn the strip so it reads upright}. Only when the OCR read it.
+    source_box: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class ReceiptAdjustment(Base):
@@ -144,3 +147,40 @@ class ItemPreference(Base):
     times_used: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+
+
+class SplitRule(Base):
+    """A chat's standing rule: items of a category are for these people ('household' -> everyone)."""
+    __tablename__ = "split_rules"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    category: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_ids: Mapped[list[str]] = mapped_column(ARRAY(String(40)), default=list)  # empty = everyone
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ReceiptCorrection(Base):
+    """
+    Something people fixed on a scanned receipt from a store, kept per chat and reused on the next
+    scan: renames and categories are applied directly, the rest is told to the AI as a hint.
+    kind: rename | category | price | not_item | missed_item | not_adjustment | missed_adjustment | adjustment_kind
+    """
+    __tablename__ = "receipt_corrections"
+    __table_args__ = (UniqueConstraint("conversation_id", "store_key", "kind", "original", name="uq_receipt_correction"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    store_key: Mapped[str] = mapped_column(String(60))
+    store_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    original: Mapped[str] = mapped_column(String(300))  # what the AI read (normalised printed line, or a label)
+    corrected: Mapped[str] = mapped_column(String(300), default="")  # what people changed it to
+    times: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -5,9 +5,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
-import type { AdminAI, AIModelOption, StoreDiscount } from '../../services/expense.service';
+import type { AdminAI, AIModelOption, SplitRules, StoreDiscount } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
-import { Switch } from './shared';
+import { firstName, PersonToggle, Switch, useChatMoney } from './shared';
+import { RECEIPT_CATEGORIES, categoryLabel } from '../../utils/receiptCategories';
 
 const emptyRule = { store_name: '', percent: '10', excluded_categories: [] as string[], stacks_with_reduced: false, active: true };
 
@@ -229,6 +230,88 @@ export const ChatExpenseSettings: React.FC<{ conversationId: string; onOpenExpen
         <Switch checked={settings.simplify_debts} disabled={disabled} label="Simplify debts" onChange={(simplify_debts) => update({ simplify_debts })} />
       </div>
       {disabled && <p className="text-xs text-muted-500">Only group admins can change these.</p>}
+      <SplitRulesSettings conversationId={conversationId} />
+    </div>
+  );
+};
+
+/** A chat's split rules: items of a category go to the same people whenever a receipt is scanned. */
+const SplitRulesSettings: React.FC<{ conversationId: string }> = ({ conversationId }) => {
+  const [rules, setRules] = useState<SplitRules | null>(null);
+  const [editing, setEditing] = useState<{ category: string; user_ids: string[]; isNew: boolean } | null>(null);
+  const { members } = useChatMoney(conversationId);
+
+  useEffect(() => {
+    expenseService.splitRules(conversationId).then(setRules).catch(() => undefined);
+  }, [conversationId]);
+
+  if (!rules) return null;
+  const nameOf = (id: string) => firstName(members.find((m) => m.id === id)) || 'Someone';
+  const who = (ids: string[]) => (ids.length ? ids.map(nameOf).join(', ') : 'Everyone, equally');
+  const save = async (next: { category: string; user_ids: string[] }[]) => {
+    try {
+      setRules(await expenseService.updateSplitRules(conversationId, next));
+      setEditing(null);
+    } catch (error) {
+      toast.error(parseApiError(error));
+    }
+  };
+  const current = rules.rules.map((r) => ({ category: r.category, user_ids: r.user_ids }));
+  const unused = RECEIPT_CATEGORIES.filter((c) => !rules.rules.some((r) => r.category === c.key));
+
+  return (
+    <div className="pt-3 border-t border-muted-100 space-y-2">
+      <div>
+        <h4 className="text-sm font-semibold text-muted-700">Split rules</h4>
+        <p className="text-xs text-muted-500">When a receipt is scanned, items in these categories go to the same people. You can still change any item.</p>
+      </div>
+      {rules.rules.length > 0 && (
+        <ul className="rounded-xl border border-muted-200 divide-y divide-muted-100">
+          {rules.rules.map((r) => (
+            <li key={r.category} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <span className="flex-1 min-w-0">
+                <span className="block font-medium text-muted-900">{r.label}</span>
+                <span className="block text-xs text-muted-500 truncate">{who(r.user_ids)}</span>
+              </span>
+              {rules.can_edit && (
+                <>
+                  <button type="button" onClick={() => setEditing({ category: r.category, user_ids: r.user_ids, isNew: false })} className="text-xs font-semibold text-primary-700 hover:underline">Edit</button>
+                  <button type="button" onClick={() => save(current.filter((x) => x.category !== r.category))} className="text-xs font-semibold text-accent-600 hover:underline">Remove</button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing ? (
+        <div className="rounded-xl border border-primary-200 bg-primary-50/50 p-3 space-y-2.5 text-sm">
+          {editing.isNew ? (
+            <label className="flex items-center gap-2">Category
+              <select value={editing.category} onChange={(e) => setEditing({ ...editing, category: e.target.value })} className="flex-1 px-2 py-1.5 rounded-lg border border-muted-300 bg-white">
+                {unused.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </label>
+          ) : <p className="font-medium text-muted-900">{categoryLabel(editing.category)}</p>}
+          <p className="text-xs text-muted-600">Who are these items for? Pick nobody for everyone, split equally.</p>
+          <div className="flex flex-wrap gap-2.5">
+            {members.map((m) => (
+              <PersonToggle key={m.id} member={m} size="xs" label={firstName(m)} selected={editing.user_ids.includes(m.id)}
+                onToggle={() => setEditing({ ...editing, user_ids: editing.user_ids.includes(m.id) ? editing.user_ids.filter((u) => u !== m.id) : [...editing.user_ids, m.id] })} />
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => save([...current.filter((x) => x.category !== editing.category), { category: editing.category, user_ids: editing.user_ids }])}
+              className="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-semibold">Save rule</button>
+            <button type="button" onClick={() => setEditing(null)} className="px-3 py-1.5 rounded-lg bg-muted-100 text-xs font-semibold">Cancel</button>
+          </div>
+        </div>
+      ) : rules.can_edit && unused.length > 0 && (
+        <button type="button" onClick={() => setEditing({ category: unused[0].key, user_ids: [], isNew: true })}
+          className="w-full h-9 rounded-lg border border-dashed border-primary-300 text-xs font-semibold text-primary-700 hover:bg-primary-50">
+          + Add a rule
+        </button>
+      )}
+      {!rules.can_edit && rules.rules.length === 0 && <p className="text-xs text-muted-500">No rules yet. Group admins can add them.</p>}
     </div>
   );
 };

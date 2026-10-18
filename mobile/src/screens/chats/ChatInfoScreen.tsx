@@ -20,6 +20,7 @@ import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
+import SplitRulesSection from '../../components/expenses/SplitRulesSection';
 import { showAlert } from '../../components/common/Dialog';
 
 const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'>> = ({ route, navigation }) => {
@@ -224,6 +225,8 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
                 trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white} />
             </View>
             {!settings.can_edit && <Text style={[styles.settingHint, { paddingHorizontal: space(4), paddingBottom: space(3) }]}>Only group admins can change these.</Text>}
+            <Divider />
+            <SplitRulesSection conversationId={conversationId} members={details.members} />
           </View>
         )}
 

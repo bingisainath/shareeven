@@ -18,7 +18,10 @@ import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { memberName, useChatMoney } from '../../hooks/useMembers';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Pencil, Plus, Sparkles } from 'lucide-react-native';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Pencil, Plus, ScanLine, Sparkles } from 'lucide-react-native';
+import ReceiptLine from '../../components/expenses/ReceiptLine';
+import { mediaUrl } from '../../config';
+import { categoryLabel } from '../../utils/receiptCategories';
 import { AdjustmentDraft, AdjustmentEditor, DISCOUNT_KINDS, ItemDraft, ItemEditor, kindLabel } from '../../components/expenses/ReceiptEditors';
 import { showAlert } from '../../components/common/Dialog';
 
@@ -66,6 +69,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const [pickingCurrency, setPickingCurrency] = useState(false);
   const [editingTotal, setEditingTotal] = useState(false);
   const [editingItem, setEditingItem] = useState<number | 'new' | null>(null);
+  const [lineShown, setLineShown] = useState<Record<number, boolean>>({}); // the printed line under an item
+  const [painter, setPainter] = useState<string | null>(null); // quick assign: tapping an item toggles this person
   const [editingAdjustment, setEditingAdjustment] = useState<number | 'new' | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -350,7 +355,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           )}
         </View>
 
-        <Text style={styles.peopleTitle}>PEOPLE IN THIS EXPENSE</Text>
+        <Text style={styles.peopleTitle}>WHO WAS THERE?</Text>
+        <Text style={styles.peopleHint}>Tap someone who wasn’t to take them off every item.</Text>
         <View style={styles.inExpense}>
           {members.map((m) => {
             const on = inExpense(m.id);
@@ -362,6 +368,34 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
               </Pressable>
             );
           })}
+        </View>
+
+        {members.some((m) => !inExpense(m.id)) && (
+          <Text style={styles.notThere}>Not on this bill: {members.filter((m) => !inExpense(m.id)).map((m) => nameOf(m.id)).join(', ')}</Text>
+        )}
+
+        {/* Quick assign: pick a person, then tap their items */}
+        <View style={[styles.painterBox, painter && styles.painterBoxOn]}>
+          <Text style={styles.painterText}>
+            {painter ? `Tap items for ${nameOf(painter)} · tap again to take them off` : 'Quick assign: pick a person, then tap their items.'}
+          </Text>
+          <View style={styles.chips}>
+            {members.filter((m) => inExpense(m.id) || painter === m.id).map((m) => {
+              const on = painter === m.id;
+              return (
+                <Pressable key={m.id} onPress={() => setPainter(on ? null : m.id)} style={[styles.chip, on && styles.chipOn]}
+                  accessibilityState={{ selected: on }} accessibilityLabel={`Assign items to ${nameOf(m.id)}`}>
+                  <Avatar uri={m.avatar} name={memberName(m)} size={20} />
+                  <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>{nameOf(m.id).split(' ')[0]}</Text>
+                </Pressable>
+              );
+            })}
+            {painter && (
+              <Pressable onPress={() => setPainter(null)} style={styles.painterDone} accessibilityLabel="Done assigning">
+                <Text style={styles.painterDoneText}>Done</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.quick}>
@@ -378,32 +412,49 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           const gross = parseMajor(item.price, currency) || 0;
           const net = server?.net_minor ?? gross;
           const voided = item.flags.includes('voided');
+          const box = server?.source_box;
+          const photoOfLine = box ? mediaUrl(receipt.images[box.photo]) : undefined;
+          const lowConfidence = server?.confidence !== null && server?.confidence !== undefined && server.confidence < 0.6;
+          const showLine = !!photoOfLine && (lineShown[n] ?? lowConfidence);
+          const painted = !!painter && item.assignments.some((a) => a.user_id === painter);
+          const toggle = (userId: string) => change((d) => ({
+            ...d,
+            items: d.items.map((it, i) => {
+              if (i !== n) return it;
+              const has = it.assignments.some((a) => a.user_id === userId);
+              return { ...it, assignments: has ? it.assignments.filter((a) => a.user_id !== userId) : [...it.assignments, { user_id: userId, value: '1' }] };
+            }),
+          }));
           return (
-            <View key={n} style={[styles.item, unassigned.has(n) && styles.itemMissing, voided && { opacity: 0.5 }]}>
-              <Pressable onPress={() => setEditingItem(n)} style={styles.itemTop} accessibilityLabel={`Edit ${item.name}`}>
+            <View key={n} style={[styles.item, unassigned.has(n) && styles.itemMissing, painted && styles.itemPainted, voided && { opacity: 0.5 }]}>
+              <Pressable onPress={() => (painter && !voided ? toggle(painter) : setEditingItem(n))} style={styles.itemTop}
+                accessibilityLabel={painter ? `${painted ? 'Take' : 'Put'} ${nameOf(painter)} ${painted ? 'off' : 'on'} ${item.name}` : `Edit ${item.name}`}>
                 <View style={styles.flex}>
                   <Text style={[styles.itemName, voided && { textDecorationLine: 'line-through' }]}>{item.quantity !== '1' ? `${item.quantity}× ` : ''}{item.name}</Text>
                   {item.flags.includes('reduced') && <Text style={styles.flag}>Reduced</Text>}
+                  {item.category ? <Text style={styles.category}>{categoryLabel(item.category)}</Text> : null}
                   {server?.suggestion && <Text style={styles.suggestion}>{server.suggestion}</Text>}
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   {net !== gross && <Text style={styles.strike}>{formatMinor(gross, currency)}</Text>}
                   <Text style={styles.price}>{formatMinor(net, currency)}</Text>
+                  {photoOfLine && (
+                    <Pressable onPress={() => setLineShown((s) => ({ ...s, [n]: !showLine }))} hitSlop={8} style={styles.lineToggle}
+                      accessibilityLabel={showLine ? 'Hide the receipt line' : 'See this line on the receipt'}>
+                      <ScanLine size={12} color={colors.primary700} />
+                      <Text style={styles.lineToggleText}>{showLine ? 'Hide' : 'On receipt'}</Text>
+                    </Pressable>
+                  )}
                 </View>
                 <Pencil size={14} color={colors.muted400} />
               </Pressable>
+              {showLine && photoOfLine && box && <ReceiptLine uri={photoOfLine} box={box} />}
               {!voided && (
                 <View style={styles.chips}>
                   {members.map((m) => {
                     const on = item.assignments.some((a) => a.user_id === m.id);
                     return (
-                      <Pressable key={m.id} onPress={() => change((d) => ({
-                        ...d,
-                        items: d.items.map((it, i) => (i !== n ? it : {
-                          ...it,
-                          assignments: on ? it.assignments.filter((a) => a.user_id !== m.id) : [...it.assignments, { user_id: m.id, value: '1' }],
-                        })),
-                      }))} style={[styles.chip, on && styles.chipOn]} accessibilityState={{ selected: on }} accessibilityLabel={`${nameOf(m.id)} for ${item.name}`}>
+                      <Pressable key={m.id} onPress={() => toggle(m.id)} style={[styles.chip, on && styles.chipOn]} accessibilityState={{ selected: on }} accessibilityLabel={`${nameOf(m.id)} for ${item.name}`}>
                         <Avatar uri={m.avatar} name={memberName(m)} size={20} />
                         <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>{nameOf(m.id).split(' ')[0]}</Text>
                       </Pressable>
@@ -603,6 +654,17 @@ const styles = StyleSheet.create({
   quickText: { fontSize: 13, color: colors.muted700 },
   item: { backgroundColor: colors.white, borderRadius: 14, borderWidth: 1, borderColor: colors.muted200, paddingHorizontal: space(3), paddingVertical: space(2.5), marginBottom: space(1.5) },
   itemMissing: { borderColor: colors.danger500, backgroundColor: colors.danger50 },
+  itemPainted: { borderColor: colors.primary500, borderWidth: 2 },
+  category: { alignSelf: 'flex-start', marginTop: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: colors.muted100, fontSize: 11, color: colors.muted600 },
+  lineToggle: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  lineToggleText: { fontSize: 11, fontWeight: '600', color: colors.primary700 },
+  peopleHint: { fontSize: 12, color: colors.muted500, marginBottom: space(2) },
+  notThere: { fontSize: 12, color: colors.muted600, marginTop: -space(1), marginBottom: space(2) },
+  painterBox: { borderWidth: 1, borderColor: colors.muted200, borderRadius: 14, padding: space(3), marginBottom: space(2) },
+  painterBoxOn: { borderColor: colors.primary300, backgroundColor: colors.primary50 },
+  painterText: { fontSize: 13, color: colors.muted700 },
+  painterDone: { paddingHorizontal: space(3), paddingVertical: 4, borderRadius: radius.full, backgroundColor: colors.primary600, justifyContent: 'center' },
+  painterDoneText: { fontSize: 12, fontWeight: '700', color: colors.white },
   itemTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space(2) },
   itemName: { fontSize: 15, fontWeight: '600', color: colors.muted900 },
   flag: { alignSelf: 'flex-start', marginTop: 2, fontSize: 11, color: colors.warning700, backgroundColor: colors.warning50, paddingHorizontal: 6, borderRadius: 4, overflow: 'hidden' },

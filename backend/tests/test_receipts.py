@@ -54,8 +54,9 @@ class FakeExtractor:
         self.calls = []
         self.error = None
 
-    async def extract(self, images, note, model, api_key):
+    async def extract(self, images, note, model, api_key, hints=None):
         self.calls.append({"images": len(images), "model": model, "api_key": api_key})
+        self.hints = hints
         if self.error:
             raise ExtractionError(self.error)
         return ExtractionResult(ReceiptExtraction.model_validate(self.response), model, {"input_tokens": 1500, "output_tokens": 400})
@@ -492,8 +493,8 @@ class OcrFakeExtractor(FakeExtractor):
         self.text_response = TESCO
         self.text_calls = []
 
-    async def extract_text(self, pages, note, model, api_key):
-        self.text_calls.append({"pages": pages, "model": model})
+    async def extract_text(self, pages, note, model, api_key, hints=None):
+        self.text_calls.append({"pages": pages, "model": model, "hints": hints})
         return ExtractionResult(ReceiptExtraction.model_validate(self.text_response), model, {"input_tokens": 900, "output_tokens": 300})
 
 
@@ -699,3 +700,134 @@ async def test_the_uploader_sees_each_step_of_the_scan(client, six, ocr_ai, even
     receipt = await scan(client, people[0], group)
     assert steps() == ["photo", "totals"]
     assert receipt["progress"] is None and pipeline.SCAN_PROGRESS == {}  # cleared once done
+
+
+# ------------------------------------------------------------------ split rules, corrections, where lines are printed
+
+async def test_split_rules_suggest_who_items_are_for(client, six, fake_ai, db):
+    people, group = await six()
+    p1, p2, p3 = people[0], people[1], people[2]
+    r = await client.put(f"/api/v1/conversations/{group}/split-rules", headers=p2.headers,
+                         json={"rules": [{"category": "dairy", "user_ids": [p2.id]}]})
+    assert r.status_code == 403  # only admins, like the other expense settings
+    r = await client.put(f"/api/v1/conversations/{group}/split-rules", headers=p1.headers, json={"rules": [
+        {"category": "dairy", "user_ids": [p2.id, p3.id]}, {"category": "bakery", "user_ids": []},
+    ]})
+    assert r.status_code == 200, r.text
+    assert [x["category"] for x in r.json()["data"]["rules"]] == ["dairy", "bakery"]
+    bad = await client.put(f"/api/v1/conversations/{group}/split-rules", headers=p1.headers,
+                           json={"rules": [{"category": "spaceships", "user_ids": []}]})
+    assert bad.status_code == 400
+
+    receipt = await scan(client, p1, group)
+    by_name = {i["name"]: i for i in receipt["items"]}
+    assert sorted(a["user_id"] for a in by_name["Milk"]["assignments"]) == sorted([p2.id, p3.id])
+    assert by_name["Milk"]["suggestion"].startswith("Dairy: ")
+    assert len(by_name["Bread"]["assignments"]) == 6 and by_name["Bread"]["suggestion"] == "Bakery: everyone"
+    assert len(by_name["Rice"]["assignments"]) == 6 and by_name["Rice"]["suggestion"] is None  # no rule
+
+    # Saved as suggested: nothing to remember, the rule keeps deciding. A different choice is remembered and wins.
+    assign = {0: [p2.id, p3.id], 1: [p1.id], 2: [p.id for p in people], 3: [p.id for p in people], 4: [p.id for p in people]}
+    await client.put(f"/api/v1/receipts/{receipt['id']}", json=review_body(receipt, assign), headers=p1.headers)
+    assert (await client.post(f"/api/v1/receipts/{receipt['id']}/save", json={}, headers=p1.headers)).status_code == 200
+    again = {i["name"]: i for i in (await scan(client, p1, group))["items"]}
+    assert again["Milk"]["suggestion"].startswith("Dairy: ")
+    assert [a["user_id"] for a in again["Cheese"]["assignments"]] == [p1.id]
+    assert again["Cheese"]["suggestion"].startswith("Usually for")
+
+
+async def test_corrections_are_reused_on_the_next_scan_from_that_store(client, six, fake_ai, db, make_user, make_dm):
+    from app.models.receipt import ReceiptCorrection
+    people, group = await six()
+    p1 = people[0]
+    receipt = await scan(client, p1, group)
+    assert fake_ai.hints is None  # nothing learnt yet
+    everyone = {n: [p.id for p in people] for n in range(5)}
+    body = review_body(receipt, everyone)
+    body["items"][0]["name"] = "Oat milk"           # rename
+    body["items"][2]["category"] = "household"      # recategorise
+    body["items"][1]["price"] = "4.20"              # misread price
+    body["adjustments"] = [a for a in body["adjustments"] if a["source"] != "printed" or a["item_indexes"] != [4]]  # not a discount
+    body["adjustments"].append({"kind": "promotion", "label": "Multibuy", "amount": "-0.20", "percent": None, "item_indexes": [],
+                                "allocation": "proportional", "assignee_ids": [], "source": "printed", "enabled": True})
+    body["printed_total"] = None
+    r = await client.put(f"/api/v1/receipts/{receipt['id']}", json=body, headers=p1.headers)
+    assert r.status_code == 200, r.text
+    assert (await client.post(f"/api/v1/receipts/{receipt['id']}/save", json={}, headers=p1.headers)).status_code == 200
+    rows = {(c.kind, c.corrected) for c in (await db.execute(
+        select(ReceiptCorrection).where(ReceiptCorrection.conversation_id == uuid.UUID(group)))).scalars().all()}
+    assert {k for k, _ in rows} == {"rename", "category", "price", "not_adjustment", "missed_adjustment"}
+    assert ("rename", "Oat milk") in rows and ("category", "household") in rows
+
+    again = await scan(client, p1, group)
+    assert again["items"][0]["name"] == "Oat milk" and again["items"][2]["category"] == "household"
+    assert any("Used what people fixed on earlier" in w and "2 lines" in w for w in again["warnings"])
+    assert "Multibuy" in fake_ai.hints and "is not a discount or charge to count" in fake_ai.hints
+    assert "TESCO Ireland" in fake_ai.hints and "€4.20" in fake_ai.hints
+
+    # Corrections stay in the chat they were made in
+    stranger = await make_user("q1")
+    dm = await make_dm(p1, stranger)
+    await scan(client, p1, dm)
+    assert fake_ai.hints is None
+
+
+async def test_receipts_with_too_many_fixes_teach_nothing(client, six, fake_ai, db):
+    from app.models.receipt import ReceiptCorrection
+    from app.services.receipt_ai import learning
+    people, group = await six()
+    receipt = await scan(client, people[0], group)
+    body = review_body(receipt, {n: [p.id for p in people] for n in range(5)})
+    extra = [{"id": None, "name": f"Extra {n}", "quantity": "1", "unit": "each", "price": "0.01", "category": None, "flags": [],
+              "split_mode": "equal", "assignments": [{"user_id": people[0].id, "value": "1"}]}
+             for n in range(learning.MAX_CORRECTIONS_PER_RECEIPT + 1)]
+    body["items"] += extra
+    body["printed_total"] = None
+    await client.put(f"/api/v1/receipts/{receipt['id']}", json=body, headers=people[0].headers)
+    assert (await client.post(f"/api/v1/receipts/{receipt['id']}/save", json={}, headers=people[0].headers)).status_code == 200
+    assert (await db.execute(select(ReceiptCorrection).where(ReceiptCorrection.conversation_id == uuid.UUID(group)))).scalars().all() == []
+
+
+async def test_each_item_knows_where_it_is_printed(client, six, ocr_ai, monkeypatch):
+    from app.services.receipt_ai import ocr
+    lines = [{"text": "TESCO", "box": [0.3, 0.05, 0.7, 0.08]},
+             {"text": "MILK 1.80", "box": [0.1, 0.2, 0.9, 0.23]}, {"text": "CHEESE 4.00", "box": [0.1, 0.24, 0.9, 0.27]},
+             {"text": "RICE 12.00", "box": [0.1, 0.28, 0.9, 0.31]}, {"text": "BREAD 1.60", "box": [0.1, 0.32, 0.9, 0.35]},
+             {"text": "CROISSANTS 2.50", "box": [0.1, 0.36, 0.9, 0.39]}, {"text": "TOTAL 18.20", "box": [0.1, 0.5, 0.9, 0.53]}]
+    monkeypatch.setattr(ocr, "read_photo", lambda data: ocr.OcrPage(
+        text="\n".join(l["text"] for l in lines), confidence=0.98, rows=len(lines), unsure_rows=0, seconds=0.1, turned=90, lines=lines))
+    people, group = await six()
+    receipt = await scan(client, people[0], group)
+    boxes = [i["source_box"] for i in receipt["items"]]
+    assert boxes[0] == {"photo": 0, "box": [0.1, 0.2, 0.9, 0.23], "turned": 90}
+    assert boxes[4]["box"] == [0.1, 0.36, 0.9, 0.39]
+    # Kept through edits of the review screen
+    body = review_body(receipt, {n: [p.id for p in people] for n in range(5)})
+    body["items"][0]["name"] = "Milk 2L"
+    r = await client.put(f"/api/v1/receipts/{receipt['id']}", json=body, headers=people[0].headers)
+    assert r.json()["data"]["items"][0]["source_box"] == boxes[0]
+
+
+def test_wrapped_and_repeated_lines_are_found_in_order():
+    from app.services.receipt_ai import learning, ocr
+    page = ocr.OcrPage(text="", confidence=1, rows=0, unsure_rows=0, seconds=0, turned=0, lines=[
+        {"text": "1 Tesco Health High Strength Vitamin €3.00", "box": [0.1, 0.10, 0.9, 0.12]},
+        {"text": "D 25mcg Tablets 120s", "box": [0.12, 0.12, 0.6, 0.14]},
+        {"text": "Tesco Bananas Loose €1.08", "box": [0.1, 0.20, 0.9, 0.22]},
+        {"text": "Tesco Bananas Loose €1.62", "box": [0.1, 0.25, 0.9, 0.27]},
+    ])
+    found = learning.locate_items(["1 Tesco Health High Strength Vitamin D 25mcg Tablets 120s €3.00",
+                                   "Tesco Bananas Loose €1.08", "Tesco Bananas Loose €1.62", "Something else entirely"], [page])
+    assert found[0]["box"] == [0.1, 0.10, 0.9, 0.14]  # both wrapped rows
+    assert found[1]["box"][1] == 0.20 and found[2]["box"][1] == 0.25
+    assert found[3] is None
+
+
+def test_boxes_map_back_onto_the_upright_photo():
+    from app.services.receipt_ai.ocr import upright_box
+    # A 100x50 upright photo, read turned anticlockwise (now 50 wide, 100 tall): its top-left corner
+    # region (x 0-10, y 0-5) ends up at x 0-5, y 90-100 of the turned image
+    assert upright_box([0, 90, 5, 100], 90, 100, 50) == [0.0, 0.0, 0.1, 0.1]
+    # Turned clockwise: the top-left region lands at x 45-50, y 0-10
+    assert upright_box([45, 0, 50, 10], -90, 100, 50) == [0.0, 0.0, 0.1, 0.1]
+    assert upright_box([10, 5, 30, 15], 0, 100, 50) == [0.1, 0.1, 0.3, 0.3]

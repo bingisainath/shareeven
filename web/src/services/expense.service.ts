@@ -134,6 +134,26 @@ export interface ExpenseSettings {
   can_edit: boolean;
 }
 
+/** Where an item is printed: photo index, [x0, y0, x1, y1] as fractions of that photo, degrees to turn it upright. */
+export interface SourceBox {
+  photo: number;
+  box: [number, number, number, number];
+  turned: number;
+}
+
+/** A chat's standing rule: items of a category are for these people (empty = everyone). */
+export interface SplitRule {
+  category: string;
+  label: string;
+  user_ids: string[];
+}
+
+export interface SplitRules {
+  categories: { key: string; label: string }[];
+  rules: SplitRule[];
+  can_edit: boolean;
+}
+
 export interface ReceiptItem {
   id: number;
   name: string;
@@ -149,6 +169,7 @@ export interface ReceiptItem {
   split_mode: 'equal' | 'quantity' | 'weight';
   assignments: { user_id: string; value: string }[];
   suggestion: string | null;
+  source_box: SourceBox | null; // where the line is printed (when the OCR read it)
 }
 
 export interface ReceiptAdjustment {
@@ -333,6 +354,9 @@ export const expenseService = {
     data<{ id: string; status: Receipt['status']; store_name: string | null; uploaded_by: string | null; images: string[]; created_at: string }[]>(
       api.get(`${V1}/conversations/${conversationId}/receipts`)),
   getReceipt: (id: string) => data<Receipt>(api.get(`${V1}/receipts/${id}`)),
+  splitRules: (conversationId: string) => data<SplitRules>(api.get(`${V1}/conversations/${conversationId}/split-rules`)),
+  updateSplitRules: (conversationId: string, rules: { category: string; user_ids: string[] }[]) =>
+    data<SplitRules>(api.put(`${V1}/conversations/${conversationId}/split-rules`, { rules })),
   updateReceipt: (id: string, body: ReceiptUpdate) => data<Receipt>(api.put(`${V1}/receipts/${id}`, body)),
   retryReceipt: (id: string) => data<Receipt>(api.post(`${V1}/receipts/${id}/retry`)),
   discardReceipt: (id: string) => data(api.delete(`${V1}/receipts/${id}`)),

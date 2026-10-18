@@ -32,11 +32,18 @@ How shops print things (common layouts; always trust the receipt in front of you
 - If the image is not a receipt, set is_receipt false and leave the lists empty."""
 
 
-def user_text(note: str | None, image_count: int) -> str:
-    text = "Transcribe this receipt." if image_count == 1 else f"These {image_count} photos are parts of one receipt, in order. Transcribe it once."
+def _context(note: str | None, hints: str | None) -> str:
+    text = ""
     if note:
-        text += f"\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
+        text += f"\n\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
+    if hints:
+        text += "\n\n" + hints
     return text
+
+
+def user_text(note: str | None, image_count: int, hints: str | None = None) -> str:
+    text = "Transcribe this receipt." if image_count == 1 else f"These {image_count} photos are parts of one receipt, in order. Transcribe it once."
+    return text + _context(note, hints)
 
 
 # Added to SYSTEM_PROMPT when the receipt arrives as OCR text instead of photos (the cheap path)
@@ -53,13 +60,11 @@ This time you get the receipt as OCR text, not photos. The text keeps the printe
 Before you answer, check your work: the item line_totals plus the adjustments you listed (discounts negative, amounts already inside prices left out) must equal the printed total. If they don't, look for the usual causes: a summary line under the subtotal ("Promotions", "Savings", "Total savings") counted as a discount although its items' own discount lines are already listed, a bill-wide discount printed only in the savings breakdown (e.g. "Colleague Discount", "Multibuy") missed or skipped as a summary, a discount line ("Cc €5.00") reported as an item, or a discount wrongly marked already_included_in_items. Discounts printed on a receipt are never already included in the item prices."""
 
 
-def ocr_user_text(pages: list[str], note: str | None) -> str:
+def ocr_user_text(pages: list[str], note: str | None, hints: str | None = None) -> str:
     if len(pages) == 1:
         text = "Transcribe this receipt. OCR text:\n\n" + pages[0]
     else:
         text = f"These {len(pages)} photos are parts of one receipt, in order. Transcribe it once. OCR text:"
         for number, page in enumerate(pages, 1):
             text += f"\n\n--- Photo {number} ---\n{page}"
-    if note:
-        text += f"\n\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
-    return text
+    return text + _context(note, hints)

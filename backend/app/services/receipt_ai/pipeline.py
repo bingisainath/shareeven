@@ -30,7 +30,7 @@ from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, Recei
 from app.models.user import User
 from app.services import media_storage
 from app.services.money import MoneyError, allocate, format_minor, is_supported, parse_decimal, to_minor
-from app.services.receipt_ai import ocr
+from app.services.receipt_ai import learning, ocr
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
 from app.services.receipt_ai.claude import ClaudeExtractor
 from app.services.receipt_ai.images import prepare
@@ -235,7 +235,7 @@ def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
 
 
 async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str,
-                         step: Step = _no_step) -> tuple[list, ExtractionResult | None, dict]:
+                         step: Step = _no_step, hints: str | None = None) -> tuple[list, ExtractionResult | None, dict]:
     """OCR on our CPU, then the cheap text model. (pages, None, notes) when that didn't work."""
     await step("ocr")
     try:
@@ -255,7 +255,8 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         return pages, None, notes
     await step("items")
     try:
-        result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key)
+        result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key,
+                                              **({"hints": hints} if hints else {}))
     except Exception as e:  # whatever went wrong, the photos are still there to read
         if not isinstance(e, ExtractionError):
             logger.exception("Receipt %s: text model crashed", receipt.id)
@@ -323,7 +324,7 @@ def _save_debug(receipt: Receipt, pages: list, cheap: ExtractionResult | None, f
 
 
 async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: list[bytes], api_key: str,
-                       step: Step = _no_step) -> ExtractionResult:
+                       step: Step = _no_step, hints: str | None = None) -> ExtractionResult:
     """
     Cheap path first: OCR text -> cheaper text model (~2-3 cents). Trusted when its lines add up
     to the printed total; otherwise the photos go to the model the admins chose, as before.
@@ -331,15 +332,16 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
     if not _ocr_path_on(receipt, extractor):
         await step("photo")
         images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
-        result = await extractor.extract(images, receipt.note, receipt.model, api_key)
+        result = await extractor.extract(images, receipt.note, receipt.model, api_key, **({"hints": hints} if hints else {}))
         result.data = without_summary_lines(result.data)
         return result
 
-    pages, cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key, step)
+    pages, cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key, step, hints)
     if cheap is not None:
         cheap.data = without_summary_lines(cheap.data)
         if adds_up(cheap.data):
             cheap.usage = _combined_usage("ocr", notes, cheap)
+            cheap.pages = pages
             _save_debug(receipt, pages, cheap, cheap)
             return cheap
         notes["ocr"]["rejected"] = _rejection(cheap.data)
@@ -349,7 +351,7 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
     await step("second_look" if cheap is not None else "photo")
     images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
     try:
-        result = await extractor.extract(images, receipt.note, receipt.model, api_key)
+        result = await extractor.extract(images, receipt.note, receipt.model, api_key, **({"hints": hints} if hints else {}))
         result.data = without_summary_lines(result.data)
     except Exception as e:
         if cheap is None:
@@ -358,9 +360,11 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
             logger.exception("Receipt %s: photo model crashed, keeping the OCR read", receipt.id)
         # The cheap read didn't add up, but it's better than nothing: the review screen flags the lines
         cheap.usage = _combined_usage("ocr", notes, cheap)
+        cheap.pages = pages
         _save_debug(receipt, pages, cheap, cheap)
         return cheap
     result.usage = _combined_usage("ocr_then_photos", notes, *([cheap] if cheap else []), result)
+    result.pages = pages  # the photo model's lines are on the same photos the OCR read
     _save_debug(receipt, pages, cheap, result)
     return result
 
@@ -391,11 +395,12 @@ async def run_scan(receipt_id: uuid.UUID, api_key: str) -> None:
 
         try:
             photos = await asyncio.to_thread(_read_photos, receipt.image_urls)
-            result = await read_receipt(receipt, extractor, photos, api_key, step)
+            hints = await learning.correction_hints(db, receipt.conversation_id)
+            result = await read_receipt(receipt, extractor, photos, api_key, step, hints)
             await step("totals")
             receipt.model = result.model or receipt.model
             receipt.usage = result.usage
-            await apply_extraction(db, receipt, result.data)
+            await apply_extraction(db, receipt, result.data, result.pages)
         except ExtractionError as e:
             receipt.status, receipt.error = "failed", str(e)[:500]
         except Exception:
@@ -432,7 +437,7 @@ def _quantity(text: str | None) -> Decimal:
     return value if value > 0 else Decimal(1)
 
 
-async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtraction) -> None:
+async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtraction, pages: list | None = None) -> None:
     receipt.raw_extraction = data.model_dump(mode="json")
     if not data.is_receipt:
         receipt.status, receipt.error = "failed", "This doesn't look like a receipt"
@@ -474,32 +479,50 @@ async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtr
     }
     names = await _usernames(db, member_ids)
     everyone = [{"user_id": u, "value": "1"} for u in sorted(member_ids, key=lambda u: names.get(u, ""))]
+    rules = await learning.split_rules(db, receipt.conversation_id)
+    renames, categories = await learning.store_fixes(db, receipt.conversation_id, receipt.store_key)
+    printed_at = learning.locate_items([i.raw_text for i in data.items], pages or [])
+    fixed = 0
 
     receipt.items = []
     receipt.adjustments = []
     items: list[ReceiptItem] = []
     for position, extracted in enumerate(data.items):
         gross = money(extracted.line_total, "price") or 0
+        # What people called this line / filed it under on an earlier receipt from this store
+        key = learning.line_key(extracted.raw_text)
+        name = (extracted.name or extracted.raw_text or "Item")[:200]
+        category = (extracted.category or None) and extracted.category[:40].strip().lower()
+        if key and (renames.get(key, name) != name or categories.get(key, category) != category):
+            name, category, fixed = renames.get(key, name)[:200], categories.get(key, category), fixed + 1
+        # Who it's for: this item's usual people, else the chat's rule for its category, else everyone
         assignments, reason = everyone, None
-        pref = prefs.get(item_key(extracted.name))
+        pref = prefs.get(item_key(name))
+        rule = rules.get(learning.rule_category(category, extracted.flags) or "")
         if pref and pref.user_ids and set(pref.user_ids) <= member_ids:
             assignments = [{"user_id": u, "value": "1"} for u in pref.user_ids]
             reason = "Usually for " + ", ".join(names.get(u, "someone") for u in pref.user_ids)
+        elif rule is not None:
+            people = [u for u in rule.user_ids if u in member_ids]
+            assignments = [{"user_id": u, "value": "1"} for u in people] if people else everyone
+            label = learning.RECEIPT_CATEGORIES.get(rule.category, rule.category)
+            reason = f"{label}: " + (", ".join(names.get(u, "someone") for u in people) if people else "everyone")
         item = ReceiptItem(
             position=position,
             raw_text=(extracted.raw_text or "")[:300],
-            name=(extracted.name or extracted.raw_text or "Item")[:200],
+            name=name,
             quantity=_quantity(extracted.quantity),
             unit=extracted.unit,
             unit_price_minor=money(extracted.unit_price, "unit price"),
             gross_minor=gross,
-            category=(extracted.category or None) and extracted.category[:40].lower(),
+            category=category,
             flags=list(dict.fromkeys(extracted.flags)),
             tax_code=(extracted.tax_code or None) and extracted.tax_code[:10],
             confidence=max(0.0, min(1.0, extracted.confidence)),
             split_mode="equal",
             assignments=assignments,
             ai_suggestion_reason=reason,
+            source_box=printed_at[position],
         )
         items.append(item)
         receipt.items.append(item)
@@ -534,6 +557,9 @@ async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtr
     warnings.extend(match_bill_discounts(receipt))
     await _add_store_rule(db, receipt)
     await db.flush()
+    if fixed:
+        warnings.append(f"Used what people fixed on earlier {receipt.store_name or 'receipts'} receipts for {fixed} "
+                        f"line{'s' if fixed != 1 else ''}")
     result, error = compute(receipt)
     if error:
         warnings.append(error)
@@ -856,6 +882,7 @@ def serialize(receipt: Receipt) -> dict:
                 "split_mode": i.split_mode,
                 "assignments": i.assignments or [],
                 "suggestion": i.ai_suggestion_reason,
+                "source_box": i.source_box,
             }
             for i in receipt.items
         ],

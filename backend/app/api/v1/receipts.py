@@ -19,15 +19,16 @@ from app.config.settings import settings
 from app.core import rate_limit as rl
 from app.db.session import get_db
 from app.models.expense import Expense
-from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem
+from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, SplitRule
 from app.models.user import User
 from app.services import expense_service as svc
 from app.services import media_storage
 from app.services.money import MoneyError, format_minor, is_supported, to_minor
-from app.services.receipt_ai import pipeline
+from app.services.receipt_ai import learning, pipeline
 from app.services.split_engine import ADJUSTMENT_KINDS, ALLOCATIONS, ITEM_SPLIT_MODES, validate_payers
 from app.websocket.routes import publish_users
 from app.schemas.receipts import (
+    SplitRulesRequest,
     CreateReceiptRequest, UpdateReceiptRequest, SaveReceiptRequest,
 )
 
@@ -182,6 +183,7 @@ async def update_receipt(
             split_mode=item.split_mode,
             assignments=[{"user_id": str(a.user_id), "value": a.value} for a in item.assignments],
             ai_suggestion_reason=old.ai_suggestion_reason if old else None,
+            source_box=old.source_box if old else None,
         ))
 
     receipt.items = new_items
@@ -272,7 +274,12 @@ async def discard_receipt(
 
 
 async def _remember_assignments(db: AsyncSession, receipt: Receipt) -> None:
-    """Next time 'oat milk' appears in this chat, suggest the same people."""
+    """
+    Next time 'oat milk' appears in this chat, suggest the same people. Only what differs from the
+    default (the chat's rule for its category, else everyone) is remembered, so rules keep working.
+    """
+    member_ids = sorted(str(u) for u in await pipeline._member_ids(db, receipt.conversation_id))
+    rules = await learning.split_rules(db, receipt.conversation_id)
     for item in receipt.items:
         user_ids = sorted({a["user_id"] for a in item.assignments or []})
         if not user_ids or "voided" in (item.flags or []):
@@ -280,7 +287,13 @@ async def _remember_assignments(db: AsyncSession, receipt: Receipt) -> None:
         key = pipeline.item_key(item.name)
         if not key:
             continue
+        rule = rules.get(learning.rule_category(item.category, item.flags or []) or "")
+        default = sorted(u for u in rule.user_ids if u in member_ids) if rule and rule.user_ids else member_ids
         pref = await db.get(ItemPreference, (receipt.conversation_id, key))
+        if user_ids == (default or member_ids):
+            if pref is not None:
+                await db.delete(pref)  # back to the default: nothing to remember
+            continue
         if pref is None:
             db.add(ItemPreference(conversation_id=receipt.conversation_id, item_key=key, user_ids=user_ids, times_used=1))
         else:
@@ -357,7 +370,69 @@ async def save_receipt(
     receipt.status = "saved"
     receipt.updated_at = now
     await _remember_assignments(db, receipt)
+    await learning.learn_corrections(db, receipt)
     member_ids, payload = await svc.post_card(db, expense, current_user, text)
     await publish_users(member_ids, payload)
     await publish_users(member_ids, svc.changed_event(expense, action))
     return _ok(svc.serialize(expense, receipt), "Expense saved")
+
+
+# ------------------------------------------------------------------ split rules (per chat)
+
+async def _rules_data(db: AsyncSession, conversation_id: uuid.UUID, access) -> dict:
+    rules = await learning.split_rules(db, conversation_id)
+    return {
+        "categories": [{"key": k, "label": v} for k, v in learning.RECEIPT_CATEGORIES.items()],
+        "rules": [
+            {"category": c, "label": learning.RECEIPT_CATEGORIES.get(c, c), "user_ids": r.user_ids}
+            for c, r in sorted(rules.items(), key=lambda kv: list(learning.RECEIPT_CATEGORIES).index(kv[0])
+                               if kv[0] in learning.RECEIPT_CATEGORIES else 99)
+        ],
+        "can_edit": access.is_admin,
+    }
+
+
+@router.get("/conversations/{conversation_id}/split-rules")
+async def get_split_rules(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Who items of each category are for by default when a receipt is scanned in this chat."""
+    access = await svc.load_access(db, conversation_id, current_user)
+    return _ok(await _rules_data(db, conversation_id, access))
+
+
+@router.put("/conversations/{conversation_id}/split-rules")
+async def update_split_rules(
+    conversation_id: uuid.UUID,
+    body: SplitRulesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the chat's rules. An empty people list means everyone, split equally."""
+    access = await svc.load_access(db, conversation_id, current_user)
+    if not access.is_admin:
+        raise HTTPException(status_code=403, detail="Only group admins can change split rules")
+    members = await svc.member_users(db, conversation_id)
+    wanted: dict[str, list[str]] = {}
+    for rule in body.rules:
+        category = rule.category.strip().lower()
+        if category not in learning.RECEIPT_CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Unknown category: {rule.category}")
+        svc.require_members(rule.user_ids, members, "Everyone in a rule")
+        wanted[category] = sorted({str(u) for u in rule.user_ids})
+    existing = await learning.split_rules(db, conversation_id)
+    for category, row in existing.items():
+        if category not in wanted:
+            await db.delete(row)
+    for category, user_ids in wanted.items():
+        row = existing.get(category)
+        if row is None:
+            db.add(SplitRule(conversation_id=conversation_id, category=category, user_ids=user_ids, updated_by=current_user.id))
+        else:
+            row.user_ids, row.updated_by = user_ids, current_user.id
+    await db.flush()
+    data = await _rules_data(db, conversation_id, access)
+    await db.commit()
+    return _ok(data, "Rules saved")

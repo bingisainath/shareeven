@@ -14,7 +14,7 @@ class ExtractedItem(BaseModel):
     unit: Literal["each", "kg", "g", "l", "ml"]
     unit_price: str | None = Field(description="Price per unit if printed, else null")
     line_total: str = Field(description="Line price before any discount on later lines")
-    category: str | None = Field(description="e.g. dairy, bakery, produce, meat, drinks, alcohol, household, other")
+    category: str | None = Field(description="One of: produce, dairy, bakery, meat, fish, frozen, pantry, snacks, drinks, alcohol, household, personal_care, health, baby, pet, bags, other")
     flags: list[Literal["reduced", "deposit", "bag", "weighed", "voided", "alcohol"]]
     tax_code: str | None
     confidence: float = Field(description="0 to 1: how sure you are this line is read correctly")

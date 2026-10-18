@@ -47,7 +47,7 @@ TESCO = {
 class FakeExtractor:
     provider = "anthropic"
 
-    async def extract(self, images, note, model, api_key):
+    async def extract(self, images, note, model, api_key, hints=None):
         return ExtractionResult(ReceiptExtraction.model_validate(TESCO), model, {"input_tokens": 0, "output_tokens": 0})
 
 
