@@ -12,7 +12,7 @@ from app.models.ai import AIModel, AppSetting, UserAISettings
 from app.models.expense import (
     ConversationSettings, Expense, ExpenseEvent, ExpensePayer, ExpenseShare, Settlement,
 )
-from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
+from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptCorrection, ReceiptItem, SplitRule, StoreDiscountRule
 from app.models.device import DeviceToken
 from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
 from app.models.auth_session import AuthSession

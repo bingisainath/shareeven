@@ -11,6 +11,7 @@ import type { MemberInfo as Member } from '../../api/chat';
 import { memberName } from '../../hooks/useMembers';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { colors, radius, space } from '../../theme';
+import { RECEIPT_CATEGORIES } from '../../utils/receiptCategories';
 
 export type ItemDraft = ReceiptUpdate['items'][number];
 export type AdjustmentDraft = ReceiptUpdate['adjustments'][number];
@@ -100,6 +101,19 @@ export const ItemEditor: React.FC<{
         <Field label="Saved" value={discount} onChange={setDiscount} numeric placeholder="0.00" flex={1} />
       </View>
       <Text style={styles.hint}>Line price is what's printed for the whole line. "Saved" is a discount on just this line (Clubcard, reduced…).</Text>
+
+      <Text style={styles.label}>Category</Text>
+      <View style={styles.categories}>
+        {RECEIPT_CATEGORIES.map((c) => {
+          const on = draft.category === c.key;
+          return (
+            <Pressable key={c.key} onPress={() => set({ category: on ? null : c.key })} style={[styles.categoryChip, on && styles.categoryChipOn]}
+              accessibilityState={{ selected: on }}>
+              <Text style={[styles.categoryText, on && styles.categoryTextOn]}>{c.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       <Text style={styles.label}>Split</Text>
       <Segments value={draft.split_mode === 'equal' ? 'equal' : 'quantity'} onChange={(mode) => set({
@@ -235,6 +249,11 @@ export const AdjustmentEditor: React.FC<{
 };
 
 const styles = StyleSheet.create({
+  categories: { flexDirection: 'row', flexWrap: 'wrap', gap: space(1.5) },
+  categoryChip: { paddingHorizontal: space(2.5), paddingVertical: 5, borderRadius: radius.full, borderWidth: 1, borderColor: colors.muted200 },
+  categoryChipOn: { borderColor: colors.primary600, backgroundColor: colors.primary50 },
+  categoryText: { fontSize: 12, color: colors.muted600 },
+  categoryTextOn: { color: colors.primary700, fontWeight: '600' },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },
   sheet: { maxHeight: '88%', backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: space(4), paddingBottom: space(6), gap: space(3) },
   title: { fontSize: 17, fontWeight: '700', color: colors.muted900 },

@@ -60,3 +60,12 @@ class SaveReceiptRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=200)
     category: str = "groceries"
     spent_at: Optional[datetime] = None
+
+
+class SplitRuleBody(BaseModel):
+    category: str = Field(max_length=40)
+    user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)  # empty = everyone
+
+
+class SplitRulesRequest(BaseModel):
+    rules: list[SplitRuleBody] = Field(default_factory=list, max_length=30)

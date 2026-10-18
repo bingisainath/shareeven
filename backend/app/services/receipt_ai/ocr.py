@@ -19,7 +19,7 @@ import statistics
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PIL import Image, ImageOps
 
@@ -44,6 +44,9 @@ class OcrPage:
     unsure_rows: int
     seconds: float
     turned: int  # degrees the photo was turned to read it (sideways photos)
+    # Each printed row and where it is on the stored (upright) photo: {"text", "box": [x0, y0, x1, y1]}
+    # as fractions of its width and height, so a screen can show that line of the receipt
+    lines: list = field(default_factory=list)
 
 
 def _get_engine():
@@ -132,6 +135,7 @@ def layout(boxes, texts, scores) -> tuple[str, list[dict]]:
             "text": text, "score": float(score),
             "slope": (y1 - y0) / (x1 - x0) if x1 != x0 else 0.0,
             "x": float(min(p[0] for p in box)), "right": float(max(p[0] for p in box)),
+            "top": float(min(p[1] for p in box)), "bottom": float(max(p[1] for p in box)),
             "cx": float(sum(p[0] for p in box) / 4), "cy": float(sum(p[1] for p in box) / 4),
             "w": float(math.hypot(x1 - x0, y1 - y0)), "h": float(math.hypot(x3 - x0, y3 - y0)),
         })
@@ -185,8 +189,28 @@ def layout(boxes, texts, scores) -> tuple[str, list[dict]]:
             line += " " * max(col - len(line), 1 if line else 0) + p["text"]
         unsure = min(p["score"] for p in row) < LOW_CONFIDENCE
         lines.append(("? " if unsure else "  ") + line)
-        out_rows.append({"text": line, "unsure": unsure, "cells": [{"text": p["text"], "score": round(p["score"], 3)} for p in row]})
+        out_rows.append({
+            "text": line, "unsure": unsure,
+            "cells": [{"text": p["text"], "score": round(p["score"], 3)} for p in row],
+            "box": [min(p["x"] for p in row), min(p["top"] for p in row), max(p["right"] for p in row), max(p["bottom"] for p in row)],
+        })
     return "\n".join(lines), out_rows
+
+
+def upright_box(box: list[float], turned: int, width: int, height: int) -> list[float]:
+    """
+    A box found on the photo as OCR read it (turned 90° either way for sideways photos) -> the same
+    box on the upright photo, as fractions of its width and height. width/height: the upright photo.
+    """
+    x0, y0, x1, y1 = box
+    corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+    if turned == 90:  # PIL turned it anticlockwise: (x, y) -> (y, W - x), so back is (x', y') -> (W - y', x')
+        corners = [(width - y, x) for x, y in corners]
+    elif turned == -90:  # clockwise: (x, y) -> (H - y, x), so back is (x', y') -> (y', H - x')
+        corners = [(y, height - x) for x, y in corners]
+    xs, ys = [c[0] for c in corners], [c[1] for c in corners]
+    clamp = lambda v: round(min(max(v, 0.0), 1.0), 4)  # noqa: E731
+    return [clamp(min(xs) / width), clamp(min(ys) / height), clamp(max(xs) / width), clamp(max(ys) / height)]
 
 
 def read_photo(data: bytes) -> OcrPage:
@@ -197,8 +221,9 @@ def read_photo(data: bytes) -> OcrPage:
         boxes, texts, scores, mean, turned = read_image(img)
         seconds = time.perf_counter() - started
     text, rows = layout(boxes, texts, scores)
+    lines = [{"text": r["text"], "box": upright_box(r["box"], turned, img.width, img.height)} for r in rows]
     return OcrPage(text=text, confidence=mean, rows=len(rows), unsure_rows=sum(r["unsure"] for r in rows),
-                   seconds=round(seconds, 2), turned=turned)
+                   seconds=round(seconds, 2), turned=turned, lines=lines)
 
 
 async def read_photos(photos: list[bytes]) -> list[OcrPage]:
