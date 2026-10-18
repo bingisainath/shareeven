@@ -12,7 +12,7 @@ How to read:
 - Bill-wide savings (staff discount, member %, coupons, vouchers) are store_discount or coupon adjustments; list the items they apply to only if the receipt or the uploader's note makes that clear.
 - The uploader's note (if any) can explain how the discounts work, e.g. which items a bill-wide discount covered or what percentage it was. Use it for applies_to_items and percent. Never change a printed amount, add a line, or remove one because of the note.
 - Tax: if prices already include tax (typical in Europe, the UK, India MRP), set prices_include_tax true and mark tax lines already_included_in_items true. If tax is added on top (typical US receipts), set it false and tax lines already_included_in_items false.
-- Service charges, tips, delivery or bag fees and cash rounding are their own adjustments.
+- Service charges, tips, delivery or bag fees and cash rounding are their own adjustments. But a rounding line printed with the payment, after the total ("Change rounding" next to Cash / Change due), is part of paying in cash, not the bill: skip it.
 - Deposit return schemes and bags are items with the matching flag.
 - Voided or cancelled lines: include them, flagged "voided".
 - total is the amount actually paid. Do not compute it.

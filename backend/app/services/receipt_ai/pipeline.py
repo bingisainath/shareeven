@@ -179,10 +179,11 @@ SUMMARY_LABEL = re.compile(r"\b(promotions?|savings|you saved)\b", re.IGNORECASE
 
 def without_summary_lines(data: ReceiptExtraction) -> ReceiptExtraction:
     """
-    Models sometimes report a summary line ("Promotions: -1.26" under the subtotal, repeating the
-    item discounts above it) as one more bill-wide discount, so it counts twice. Such a line is
-    named like a summary, or (when the OCR cut its label off) equals the item discounts above it.
-    Drop it, but only when that makes the lines add up to the printed total exactly.
+    Lines models sometimes count although the printed total doesn't include them:
+    - a summary line ("Promotions: -1.26" under the subtotal) repeating the item discounts above
+      it. It's named like a summary, or (when the OCR cut its label off) equals those discounts;
+    - cash "Change rounding" printed with the payment, after the total.
+    Drop them, but only when that makes the lines add up to the printed total exactly.
     """
     if adds_up(data):
         return data
@@ -193,12 +194,16 @@ def without_summary_lines(data: ReceiptExtraction) -> ReceiptExtraction:
                    and abs(_amount(a.amount)) == item_discounts}
     except InvalidOperation:
         repeats = set()
-    summaries = {i for i, a in enumerate(data.adjustments) if not a.applies_to_items and SUMMARY_LABEL.search(a.label or "")}
-    drop = summaries | repeats
-    if not drop:
-        return data
-    fixed = data.model_copy(update={"adjustments": [a for i, a in enumerate(data.adjustments) if i not in drop]})
-    return fixed if adds_up(fixed) else data
+    summaries = repeats | {i for i, a in enumerate(data.adjustments)
+                           if not a.applies_to_items and SUMMARY_LABEL.search(a.label or "")}
+    rounding = {i for i, a in enumerate(data.adjustments) if a.kind == "rounding"}
+    for drop in (summaries, rounding, summaries | rounding):
+        if not drop:
+            continue
+        fixed = data.model_copy(update={"adjustments": [a for i, a in enumerate(data.adjustments) if i not in drop]})
+        if adds_up(fixed):
+            return fixed
+    return data
 
 
 def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:

@@ -505,6 +505,7 @@ def ocr_ai(monkeypatch):
     monkeypatch.setitem(pipeline.EXTRACTORS, "anthropic", fake)
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-server-key")
     monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "claude-sonnet-5")
+    monkeypatch.setattr(settings, "RECEIPT_OCR_DEBUG_DIR", "")  # a developer's .env may switch it on
     monkeypatch.setattr(ocr, "available", lambda: True)
     monkeypatch.setattr(ocr, "read_photo", lambda data: ocr.OcrPage(
         text="  TESCO\n  Milk  €1.80\n  Cheese  €4.00\n  Rice  €12.00\n  TOTAL  €18.20", confidence=fake.ocr_confidence,
@@ -587,6 +588,11 @@ def test_a_summary_line_counted_twice_is_dropped_only_when_that_makes_it_add_up(
     # Label cut off by the OCR ("IS:" for "Promotions:"): it equals the item discounts above it
     cut = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "IS: Discount", "-3.70")]}
     assert pipeline.adds_up(pipeline.without_summary_lines(ReceiptExtraction.model_validate(cut)))
+    # Cash "Change rounding" after the total isn't part of the bill
+    cash = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("rounding", "Change rounding", "0.01")]}
+    assert pipeline.adds_up(pipeline.without_summary_lines(ReceiptExtraction.model_validate(cash)))
+    rounded_total = {**cash, "total": "18.21"}  # rounding that is inside the total stays
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(rounded_total)).adjustments) == 4
     # A real bill-wide discount stays, even when the receipt doesn't add up
     real = {**TESCO, "total": "17.00", "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "Colleague Discount", "-1.00")]}
     assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(real)).adjustments) == 4
