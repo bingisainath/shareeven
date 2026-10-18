@@ -35,3 +35,29 @@ def user_text(note: str | None, image_count: int) -> str:
     if note:
         text += f"\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
     return text
+
+
+# Added to SYSTEM_PROMPT when the receipt arrives as OCR text instead of photos (the cheap path)
+OCR_NOTES = """
+
+This time you get the receipt as OCR text, not photos. The text keeps the printed layout: one printed row per line, prices in their column, discount lines under their item. Lines starting with "?" hold a word or number the OCR wasn't sure about. OCR makes these mistakes:
+- A price can sit one row above or below its item (the paper was curved). Pair each item with its price by the order they're printed and the receipt's own sums.
+- Faded print loses minus signs. Amounts on discount and saving lines ("Cc", "Special Offer", "Savings", "Promotions", "Discount") are negative even without "-".
+- Letters get misread ("Tesoo", "Mi Ik", "0" for "O", "1" for "l"). Write product names as they were meant to be.
+- A digit can be misread ("89.93" where "2 x €4.99" means 9.98). Use the reading the receipt's own numbers support (unit price x quantity, the subtotal), lower that line's confidence and add a warning. Otherwise copy numbers exactly.
+- Words from things around the receipt (a table, another paper) can appear. Ignore anything that isn't part of the receipt.
+- If an item or price is missing or unreadable so the lines can't add up to the printed total, still report what you can read and add a warning. Never invent a line to make it add up.
+
+Before you answer, check your work: the item line_totals plus the adjustments you listed (discounts negative, amounts already inside prices left out) must equal the printed total. If they don't, look for the usual causes: a summary line under the subtotal ("Promotions", "Savings", "Total savings") counted as a discount although its items' own discount lines are already listed, a bill-wide discount (e.g. "Colleague Discount") missed because its label is cut off, a discount line ("Cc €5.00") reported as an item, or a discount wrongly marked already_included_in_items. Discounts printed on a receipt are never already included in the item prices."""
+
+
+def ocr_user_text(pages: list[str], note: str | None) -> str:
+    if len(pages) == 1:
+        text = "Transcribe this receipt. OCR text:\n\n" + pages[0]
+    else:
+        text = f"These {len(pages)} photos are parts of one receipt, in order. Transcribe it once. OCR text:"
+        for number, page in enumerate(pages, 1):
+            text += f"\n\n--- Photo {number} ---\n{page}"
+    if note:
+        text += f"\n\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
+    return text

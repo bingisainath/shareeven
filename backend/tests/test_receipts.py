@@ -480,3 +480,112 @@ async def test_the_10_percent_falls_on_the_other_items_when_the_ai_assigned_the_
     assert nets["Eggs"] == 765
     assert all(nets[LATE_TESCO_LINES[n][0]] == 0 for n in SPECIAL_OFFER)
     assert all(v >= 0 for v in nets.values()) and receipt["totals"]["difference_minor"] == 0
+
+
+# ------------------------------------------------------------------ cheap path: OCR text -> small model
+
+class OcrFakeExtractor(FakeExtractor):
+    """Also reads OCR text, like ClaudeExtractor.extract_text."""
+
+    def __init__(self):
+        super().__init__()
+        self.text_response = TESCO
+        self.text_calls = []
+
+    async def extract_text(self, pages, note, model, api_key):
+        self.text_calls.append({"pages": pages, "model": model})
+        return ExtractionResult(ReceiptExtraction.model_validate(self.text_response), model, {"input_tokens": 900, "output_tokens": 300})
+
+
+@pytest.fixture
+def ocr_ai(monkeypatch):
+    from app.services.receipt_ai import ocr
+    fake = OcrFakeExtractor()
+    fake.ocr_confidence = 0.98
+    monkeypatch.setitem(pipeline.EXTRACTORS, "anthropic", fake)
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-server-key")
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "claude-sonnet-5")
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "read_photo", lambda data: ocr.OcrPage(
+        text="  TESCO\n  Milk  €1.80\n  Cheese  €4.00\n  Rice  €12.00\n  TOTAL  €18.20", confidence=fake.ocr_confidence,
+        rows=5, unsure_rows=0, seconds=0.1, turned=0))
+    return fake
+
+
+async def _usage(db, receipt_id):
+    from app.models.receipt import Receipt
+    return (await db.execute(select(Receipt.usage).where(Receipt.id == uuid.UUID(receipt_id)))).scalar_one()
+
+
+async def test_ocr_read_that_adds_up_skips_the_photo_model(client, six, ocr_ai, db):
+    people, group = await six()
+    receipt = await scan(client, people[0], group, note="weekly shop")
+    assert ocr_ai.calls == []  # the expensive photo model never ran
+    assert [c["model"] for c in ocr_ai.text_calls] == ["claude-sonnet-5"]
+    assert "TOTAL  €18.20" in ocr_ai.text_calls[0]["pages"][0]
+    assert receipt["status"] == "ready" and receipt["model"] == "claude-sonnet-5"
+    usage = await _usage(db, receipt["id"])
+    assert usage["path"] == "ocr" and usage["input_tokens"] == 900 and usage["output_tokens"] == 300
+    assert usage["ocr"]["confidence"] == 0.98
+
+
+async def test_ocr_read_that_doesnt_add_up_goes_to_the_photo_model(client, six, ocr_ai, db):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}  # a misread digit somewhere
+    receipt = await scan(client, people[0], group)
+    assert len(ocr_ai.text_calls) == 1 and ocr_ai.calls[0]["model"] == "claude-opus-5"
+    assert receipt["status"] == "ready" and receipt["model"] == "claude-opus-5"
+    usage = await _usage(db, receipt["id"])
+    assert usage["path"] == "ocr_then_photos"
+    assert usage["input_tokens"] == 900 + 1500 and usage["output_tokens"] == 300 + 400  # both calls count
+    assert [c["model"] for c in usage["calls"]] == ["claude-sonnet-5", "claude-opus-5"]
+
+
+async def test_unclear_ocr_skips_the_text_model(client, six, ocr_ai, db):
+    people, group = await six()
+    ocr_ai.ocr_confidence = 0.90
+    receipt = await scan(client, people[0], group)
+    assert ocr_ai.text_calls == [] and len(ocr_ai.calls) == 1
+    assert receipt["model"] == "claude-opus-5"
+    assert (await _usage(db, receipt["id"]))["path"] == "ocr_then_photos"
+
+
+async def test_photo_model_failing_keeps_the_ocr_read(client, six, ocr_ai):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    ocr_ai.error = "Claude is busy or the key is out of credit. Try again in a minute"
+    receipt = await scan(client, people[0], group)
+    assert receipt["status"] == "needs_review" and receipt["model"] == "claude-sonnet-5"
+    assert any("add up to" in w for w in receipt["warnings"])
+
+
+async def test_ocr_path_off_without_a_text_model(client, six, ocr_ai, monkeypatch):
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "")
+    people, group = await six()
+    await scan(client, people[0], group)
+    assert ocr_ai.text_calls == [] and len(ocr_ai.calls) == 1
+
+
+def test_adds_up():
+    data = ReceiptExtraction.model_validate(TESCO)
+    assert pipeline.adds_up(data)  # 21.90 - 1.20 - 2.50 = 18.20; VAT inside prices not added
+    unsigned = {**TESCO, "adjustments": [adjustment("item_discount", "Cc", "1.20", [3]), *TESCO["adjustments"][1:]]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(unsigned))  # faded minus sign
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": "18.21"}))
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": None}))
+    unsure = {**TESCO, "items": [*TESCO["items"][:4], item("Croissants", "2.50", confidence=0.4)]}
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate(unsure))
+    on_top = {**TESCO, "total": "19.30", "adjustments": [*TESCO["adjustments"][:2], adjustment("tax", "Tax", "1.10")]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(on_top))  # US-style tax added on top
+
+
+def test_a_summary_line_counted_twice_is_dropped_only_when_that_makes_it_add_up():
+    doubled = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("promotion", "Promotions", "-3.70")]}
+    fixed = pipeline.without_summary_lines(ReceiptExtraction.model_validate(doubled))
+    assert pipeline.adds_up(fixed) and [a.label for a in fixed.adjustments] == ["Reduced", "Reduced", "VAT incl."]
+    # A real bill-wide discount stays, even when the receipt doesn't add up
+    real = {**TESCO, "total": "17.00", "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "Colleague Discount", "-1.00")]}
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(real)).adjustments) == 4
+    # A summary line whose removal doesn't fix the sum stays too (the review screen shows it)
+    wrong = {**doubled, "total": "15.00"}
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(wrong)).adjustments) == 4

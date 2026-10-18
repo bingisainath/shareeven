@@ -6,7 +6,7 @@ import anthropic
 
 from app.config.settings import settings
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
-from app.services.receipt_ai.prompt import SYSTEM_PROMPT, user_text
+from app.services.receipt_ai.prompt import OCR_NOTES, SYSTEM_PROMPT, ocr_user_text, user_text
 from app.services.receipt_ai.schema import ReceiptExtraction
 
 logger = logging.getLogger(__name__)
@@ -39,17 +39,24 @@ class ClaudeExtractor(ReceiptExtractor):
     provider = "anthropic"
 
     async def extract(self, images, note, model, api_key) -> ExtractionResult:
-        client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         content = [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
             for media_type, data in images
         ]
         content.append({"type": "text", "text": user_text(note, len(images))})
+        return await self._read(content, SYSTEM_PROMPT, model, api_key, settings.RECEIPT_AI_EFFORT)
 
+    async def extract_text(self, pages: list[str], note: str | None, model: str, api_key: str) -> ExtractionResult:
+        """The cheap path: the receipt as OCR text (app/services/receipt_ai/ocr.py), no photos."""
+        content = [{"type": "text", "text": ocr_user_text(pages, note)}]
+        return await self._read(content, SYSTEM_PROMPT + OCR_NOTES, model, api_key, settings.RECEIPT_OCR_EFFORT)
+
+    async def _read(self, content: list[dict], system: str, model: str, api_key: str, effort: str) -> ExtractionResult:
+        client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         kwargs: dict = {}
         if not model.startswith(_NO_THINKING_PREFIXES):
             kwargs["thinking"] = {"type": "adaptive"}
-            kwargs["output_config"] = {"effort": settings.RECEIPT_AI_EFFORT}
+            kwargs["output_config"] = {"effort": effort}
         if model in _FALLBACK_MODELS:
             kwargs["betas"] = [_FALLBACK_BETA]
             kwargs["fallbacks"] = "default"
@@ -58,7 +65,7 @@ class ClaudeExtractor(ReceiptExtractor):
             response = await client.beta.messages.parse(
                 model=model,
                 max_tokens=16000,
-                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": content}],
                 output_format=ReceiptExtraction,
                 **kwargs,

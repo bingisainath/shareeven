@@ -3,7 +3,8 @@
 """
 From uploaded photos to a reviewable receipt:
 
-  choose model and key -> read photos -> AI transcribes -> convert to integer money
+  choose model and key -> read photos -> AI transcribes (OCR text + cheap model when that
+  adds up, else the photos to the admins' model) -> convert to integer money
   -> add the uploader's store discount (switched OFF unless printed) -> suggest who
   each item is for -> check the lines add up to the printed total -> ready / needs_review
 
@@ -28,7 +29,8 @@ from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, Recei
 from app.models.user import User
 from app.services import media_storage
 from app.services.money import MoneyError, allocate, format_minor, is_supported, to_minor
-from app.services.receipt_ai.base import ExtractionError, ReceiptExtractor
+from app.services.receipt_ai import ocr
+from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
 from app.services.receipt_ai.claude import ClaudeExtractor
 from app.services.receipt_ai.images import prepare
 from app.services.receipt_ai.openai_provider import OpenAIExtractor
@@ -130,14 +132,138 @@ async def prepare_scan(db: AsyncSession, receipt: Receipt, user: User) -> str:
 
 # ------------------------------------------------------------------ the scan itself
 
-def _read_images(urls: list[str]) -> list[tuple[str, str]]:
-    images = []
+def _read_photos(urls: list[str]) -> list[bytes]:
+    photos = []
     for url in urls:
         data = media_storage.read_bytes(url)  # decrypted
         if data is None:
             raise ExtractionError("A receipt photo is missing. Upload it again")
-        images.append(prepare(data))
-    return images
+        photos.append(data)
+    return photos
+
+
+DISCOUNT_KINDS = ("item_discount", "promotion", "store_discount", "coupon")
+
+
+def _amount(text: str | None) -> Decimal:
+    cleaned = re.sub(r"[^0-9.\-]", "", str(text or "").replace(",", "."))
+    return Decimal(cleaned)
+
+
+def _computed_total(data: ReceiptExtraction) -> Decimal:
+    total = sum((_amount(i.line_total) for i in data.items), Decimal(0))
+    for a in data.adjustments:
+        if a.already_included_in_items:
+            continue
+        amount = _amount(a.amount)
+        total += -abs(amount) if a.kind in DISCOUNT_KINDS else amount
+    return total
+
+
+def adds_up(data: ReceiptExtraction) -> bool:
+    """
+    Do the lines add up to the printed total, with every line read confidently? The same sum the
+    split engine checks later; decides whether the cheap OCR read is trusted.
+    """
+    if not data.is_receipt or not data.items or not data.total:
+        return False
+    if any(i.confidence < LOW_CONFIDENCE for i in data.items):
+        return False
+    try:
+        return _computed_total(data) == _amount(data.total)
+    except InvalidOperation:
+        return False
+
+
+SUMMARY_LABEL = re.compile(r"\b(promotions?|savings|you saved)\b", re.IGNORECASE)
+
+
+def without_summary_lines(data: ReceiptExtraction) -> ReceiptExtraction:
+    """
+    Models sometimes report a summary line ("Promotions: -1.26" under the subtotal, repeating the
+    item discounts above it) as one more bill-wide discount, so it counts twice. Drop such lines,
+    but only when that makes the lines add up to the printed total exactly.
+    """
+    if adds_up(data):
+        return data
+    kept = [a for a in data.adjustments if a.applies_to_items or not SUMMARY_LABEL.search(a.label or "")]
+    if len(kept) == len(data.adjustments):
+        return data
+    fixed = data.model_copy(update={"adjustments": kept})
+    return fixed if adds_up(fixed) else data
+
+
+def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
+    return bool(settings.RECEIPT_OCR_MODEL) and receipt.provider == "anthropic" \
+        and hasattr(extractor, "extract_text") and ocr.available()
+
+
+async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str) -> tuple[ExtractionResult | None, dict]:
+    """OCR on our CPU, then the cheap text model. (None, notes) when the photos aren't clear enough."""
+    try:
+        pages = await asyncio.to_thread(lambda: [ocr.read_photo(p) for p in photos])
+    except Exception:
+        logger.exception("Receipt %s: OCR crashed, reading the photos instead", receipt.id)
+        return None, {"ocr": {"error": True}}
+    notes = {"ocr": {
+        "seconds": round(sum(p.seconds for p in pages), 2),
+        "confidence": round(min(p.confidence for p in pages), 3),
+        "unsure_rows": sum(p.unsure_rows for p in pages),
+    }}
+    if any(p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE or p.rows < 5 for p in pages):
+        logger.info("Receipt %s: OCR not clear enough (%s), reading the photos instead", receipt.id, notes["ocr"])
+        return None, notes
+    try:
+        result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key)
+    except ExtractionError as e:
+        logger.info("Receipt %s: text model failed (%s), reading the photos instead", receipt.id, e)
+        return None, notes
+    return result, notes
+
+
+def _combined_usage(path: str, notes: dict, *results: ExtractionResult) -> dict:
+    """Token totals across every model call (admin stats sum these), plus what each call used."""
+    calls = [{"model": r.model, **r.usage} for r in results]
+    return {
+        "input_tokens": sum(c.get("input_tokens") or 0 for c in calls),
+        "output_tokens": sum(c.get("output_tokens") or 0 for c in calls),
+        "cache_read_input_tokens": sum(c.get("cache_read_input_tokens") or 0 for c in calls),
+        "path": path,
+        **notes,
+        "calls": calls,
+    }
+
+
+async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: list[bytes], api_key: str) -> ExtractionResult:
+    """
+    Cheap path first: OCR text -> cheaper text model (~3 cents). Trusted only when every line was
+    read confidently and the lines add up to the printed total; otherwise the photos go to the
+    model the admins chose, as before.
+    """
+    cheap, notes = None, {}
+    if _ocr_path_on(receipt, extractor):
+        cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key)
+        if cheap is not None:
+            cheap.data = without_summary_lines(cheap.data)
+        if cheap is not None and adds_up(cheap.data):
+            cheap.usage = _combined_usage("ocr", notes, cheap)
+            return cheap
+        if cheap is not None:
+            logger.info("Receipt %s: OCR read doesn't add up, reading the photos with %s", receipt.id, receipt.model)
+
+    images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
+    try:
+        result = await extractor.extract(images, receipt.note, receipt.model, api_key)
+        result.data = without_summary_lines(result.data)
+    except ExtractionError:
+        if cheap is None:
+            raise
+        # The cheap read didn't add up, but it's better than nothing: the review screen flags the lines
+        cheap.usage = _combined_usage("ocr", notes, cheap)
+        return cheap
+    if notes:
+        result.usage = _combined_usage("ocr_then_photos", notes, *([cheap] if cheap else []), result)
+    return result
 
 
 async def run_scan(receipt_id: uuid.UUID, api_key: str) -> None:
@@ -150,8 +276,8 @@ async def run_scan(receipt_id: uuid.UUID, api_key: str) -> None:
             return
         extractor = EXTRACTORS[receipt.provider]
         try:
-            images = await asyncio.to_thread(_read_images, receipt.image_urls)
-            result = await extractor.extract(images, receipt.note, receipt.model, api_key)
+            photos = await asyncio.to_thread(_read_photos, receipt.image_urls)
+            result = await read_receipt(receipt, extractor, photos, api_key)
             receipt.model = result.model or receipt.model
             receipt.usage = result.usage
             await apply_extraction(db, receipt, result.data)

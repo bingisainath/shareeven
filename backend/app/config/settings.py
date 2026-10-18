@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     RECEIPT_AI_EFFORT: str = "medium"
     RECEIPT_AI_TIMEOUT_SECONDS: int = 120
     RECEIPT_MAX_IMAGES: int = 4
+    # Cheap path: OCR on this server's CPU (receipt_ai/ocr.py), then this text model (~3 cents a scan).
+    # Photos go to the admins' model only when the OCR read doesn't add up. Empty = always photos.
+    # Measured on 8 real receipts (2026-10): Sonnet 5 at low effort added up on 6, Haiku 4.5 on 2.
+    RECEIPT_OCR_MODEL: str = "claude-sonnet-5"
+    RECEIPT_OCR_EFFORT: str = "low"
+    RECEIPT_OCR_MIN_CONFIDENCE: float = 0.95  # below this, the photo is too unclear for the text path
+    RECEIPT_OCR_THREADS: int = 4  # CPU threads for OCR; one photo is read at a time
 
     # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
     # really sent; without them (local development) they are written to the backend log instead.
