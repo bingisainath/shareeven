@@ -10,12 +10,14 @@ The bigger "medium" models were 20-60x slower and no better. The models (~30 MB)
 first use into rapidocr's package folder.
 """
 
+import asyncio
 import io
 import logging
 import math
 import statistics
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from PIL import Image, ImageOps
@@ -29,6 +31,8 @@ LOW_CONFIDENCE = 0.85  # a row holding a piece below this is marked "?" for the 
 
 _engine = None
 _lock = threading.Lock()  # one photo at a time: OCR uses every thread it's given
+# Scans queue here, not in the shared thread pool other background work needs
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="receipt-ocr")
 
 
 @dataclass
@@ -155,6 +159,17 @@ def read_photo(data: bytes) -> OcrPage:
     text, rows = layout(boxes, texts, scores)
     return OcrPage(text=text, confidence=mean, rows=len(rows), unsure_rows=sum(r["unsure"] for r in rows),
                    seconds=round(seconds, 2), turned=turned)
+
+
+async def read_photos(photos: list[bytes]) -> list[OcrPage]:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, lambda: [read_photo(p) for p in photos])
+
+
+def download_models() -> None:
+    """Fetch the models now (e.g. while deploying) instead of on the first scan."""
+    with _lock:
+        _get_engine()
 
 
 def available() -> bool:

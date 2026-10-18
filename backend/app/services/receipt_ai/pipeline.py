@@ -28,7 +28,7 @@ from app.models.expense import ConversationSettings
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
 from app.models.user import User
 from app.services import media_storage
-from app.services.money import MoneyError, allocate, format_minor, is_supported, to_minor
+from app.services.money import MoneyError, allocate, format_minor, is_supported, parse_decimal, to_minor
 from app.services.receipt_ai import ocr
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
 from app.services.receipt_ai.claude import ClaudeExtractor
@@ -146,12 +146,16 @@ DISCOUNT_KINDS = ("item_discount", "promotion", "store_discount", "coupon")
 
 
 def _amount(text: str | None) -> Decimal:
-    cleaned = re.sub(r"[^0-9.\-]", "", str(text or "").replace(",", "."))
-    return Decimal(cleaned)
+    """Same parsing as the money code ('1,234.56', '12,30', '€3.00'); InvalidOperation if it isn't a number."""
+    try:
+        return parse_decimal(text or "")
+    except MoneyError:
+        raise InvalidOperation(text)
 
 
 def _computed_total(data: ReceiptExtraction) -> Decimal:
-    total = sum((_amount(i.line_total) for i in data.items), Decimal(0))
+    """What the split engine will add up: voided lines don't count, amounts inside prices aren't added."""
+    total = sum((_amount(i.line_total) for i in data.items if "voided" not in i.flags), Decimal(0))
     for a in data.adjustments:
         if a.already_included_in_items:
             continue
@@ -214,7 +218,7 @@ def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
 async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str) -> tuple[list, ExtractionResult | None, dict]:
     """OCR on our CPU, then the cheap text model. (pages, None, notes) when that didn't work."""
     try:
-        pages = await asyncio.to_thread(lambda: [ocr.read_photo(p) for p in photos])
+        pages = await ocr.read_photos(photos)
     except Exception:
         logger.exception("Receipt %s: OCR crashed, reading the photos instead", receipt.id)
         return [], None, {"ocr": {"error": "OCR crashed"}}
@@ -223,15 +227,18 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         "confidence": round(min(p.confidence for p in pages), 3),
         "unsure_rows": sum(p.unsure_rows for p in pages),
     }}
-    if any(p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE or p.rows < 5 for p in pages):
+    # Every photo must be clear; rows count across photos (a second photo may hold just the total)
+    if any(p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE for p in pages) or sum(p.rows for p in pages) < 5:
         logger.info("Receipt %s: OCR not clear enough (%s), reading the photos instead", receipt.id, notes["ocr"])
         notes["ocr"]["rejected"] = {"reason": "photo too unclear for OCR"}
         return pages, None, notes
     try:
         result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key)
-    except ExtractionError as e:
+    except Exception as e:  # whatever went wrong, the photos are still there to read
+        if not isinstance(e, ExtractionError):
+            logger.exception("Receipt %s: text model crashed", receipt.id)
         logger.info("Receipt %s: text model failed (%s), reading the photos instead", receipt.id, e)
-        notes["ocr"]["rejected"] = {"reason": f"text model failed: {e}"}
+        notes["ocr"]["rejected"] = {"reason": f"text model failed: {str(e)[:200]}"}
         return pages, None, notes
     return pages, result, notes
 
@@ -319,9 +326,11 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
     try:
         result = await extractor.extract(images, receipt.note, receipt.model, api_key)
         result.data = without_summary_lines(result.data)
-    except ExtractionError:
+    except Exception as e:
         if cheap is None:
             raise
+        if not isinstance(e, ExtractionError):
+            logger.exception("Receipt %s: photo model crashed, keeping the OCR read", receipt.id)
         # The cheap read didn't add up, but it's better than nothing: the review screen flags the lines
         cheap.usage = _combined_usage("ocr", notes, cheap)
         _save_debug(receipt, pages, cheap, cheap)

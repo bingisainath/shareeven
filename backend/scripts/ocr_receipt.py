@@ -5,6 +5,7 @@ printed, which the cheap text model gets. Useful to check a receipt the OCR path
     python scripts/ocr_receipt.py photo.jpg [more.jpg ...]    # local image files
     python scripts/ocr_receipt.py --receipts                  # every scanned receipt in the DB
     python scripts/ocr_receipt.py --receipts --out ocr_out/   # also save <photo>.txt and .json
+    python scripts/ocr_receipt.py --download                  # fetch the models (~30 MB) while deploying
 
 Rows starting with "?" hold a piece the OCR wasn't sure about.
 """
@@ -47,7 +48,12 @@ def main() -> int:
     ap.add_argument("images", nargs="*", help="image files or /api/v1/media/... URLs")
     ap.add_argument("--receipts", action="store_true", help="every receipt photo in the DB")
     ap.add_argument("--out", help="folder for <photo>.txt and .json")
+    ap.add_argument("--download", action="store_true", help="only fetch the OCR models, so the first scan doesn't")
     args = ap.parse_args()
+    if args.download:
+        ocr.download_models()
+        print("OCR models ready")
+        return 0
 
     sources = [(Path(s).name, s) for s in args.images]
     if args.receipts:

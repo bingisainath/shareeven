@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 # Models without adaptive thinking / effort (older generations) get a plain request
 _NO_THINKING_PREFIXES = ("claude-haiku-4", "claude-3")
+# Models that reject thinking {"type": "disabled"} with a 400: effort "none" becomes "low" there
+_ALWAYS_THINKING_PREFIXES = ("claude-opus-5-5", "claude-fable", "claude-mythos")
 # Server-side fallback when Opus 5's safety classifier declines (rare for receipts)
 _FALLBACK_MODELS = {"claude-opus-5"}
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -57,9 +59,10 @@ class ClaudeExtractor(ReceiptExtractor):
                     max_tokens: int = 16000) -> ExtractionResult:
         client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         kwargs: dict = {}
+        if effort == "none" and model.startswith(_ALWAYS_THINKING_PREFIXES):
+            effort = "low"
         if effort == "none" and not model.startswith(_NO_THINKING_PREFIXES):
-            # Sonnet 5 / Opus 5 accept this; Opus 5.5 and Fable reject it (use an effort level there)
-            kwargs["thinking"] = {"type": "disabled"}
+            kwargs["thinking"] = {"type": "disabled"}  # Sonnet 5 / Opus 5
         elif not model.startswith(_NO_THINKING_PREFIXES):
             kwargs["thinking"] = {"type": "adaptive"}
             kwargs["output_config"] = {"effort": effort}
