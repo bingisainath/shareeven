@@ -6,13 +6,15 @@ import anthropic
 
 from app.config.settings import settings
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
-from app.services.receipt_ai.prompt import SYSTEM_PROMPT, user_text
+from app.services.receipt_ai.prompt import OCR_NOTES, SYSTEM_PROMPT, ocr_user_text, user_text
 from app.services.receipt_ai.schema import ReceiptExtraction
 
 logger = logging.getLogger(__name__)
 
 # Models without adaptive thinking / effort (older generations) get a plain request
 _NO_THINKING_PREFIXES = ("claude-haiku-4", "claude-3")
+# Models that reject thinking {"type": "disabled"} with a 400: effort "none" becomes "low" there
+_ALWAYS_THINKING_PREFIXES = ("claude-opus-5-5", "claude-fable", "claude-mythos")
 # Server-side fallback when Opus 5's safety classifier declines (rare for receipts)
 _FALLBACK_MODELS = {"claude-opus-5"}
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -39,17 +41,31 @@ class ClaudeExtractor(ReceiptExtractor):
     provider = "anthropic"
 
     async def extract(self, images, note, model, api_key) -> ExtractionResult:
-        client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         content = [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
             for media_type, data in images
         ]
         content.append({"type": "text", "text": user_text(note, len(images))})
+        return await self._read(content, SYSTEM_PROMPT, model, api_key, settings.RECEIPT_AI_EFFORT)
 
+    async def extract_text(self, pages: list[str], note: str | None, model: str, api_key: str) -> ExtractionResult:
+        """The cheap path: the receipt as OCR text (app/services/receipt_ai/ocr.py), no photos."""
+        content = [{"type": "text", "text": ocr_user_text(pages, note)}]
+        # Capped: a failed cheap read is followed by the photo model, so it must stay cheap
+        return await self._read(content, SYSTEM_PROMPT + OCR_NOTES, model, api_key, settings.RECEIPT_OCR_EFFORT,
+                                max_tokens=settings.RECEIPT_OCR_MAX_TOKENS)
+
+    async def _read(self, content: list[dict], system: str, model: str, api_key: str, effort: str,
+                    max_tokens: int = 16000) -> ExtractionResult:
+        client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         kwargs: dict = {}
-        if not model.startswith(_NO_THINKING_PREFIXES):
+        if effort == "none" and model.startswith(_ALWAYS_THINKING_PREFIXES):
+            effort = "low"
+        if effort == "none" and not model.startswith(_NO_THINKING_PREFIXES):
+            kwargs["thinking"] = {"type": "disabled"}  # Sonnet 5 / Opus 5
+        elif not model.startswith(_NO_THINKING_PREFIXES):
             kwargs["thinking"] = {"type": "adaptive"}
-            kwargs["output_config"] = {"effort": settings.RECEIPT_AI_EFFORT}
+            kwargs["output_config"] = {"effort": effort}
         if model in _FALLBACK_MODELS:
             kwargs["betas"] = [_FALLBACK_BETA]
             kwargs["fallbacks"] = "default"
@@ -57,8 +73,8 @@ class ClaudeExtractor(ReceiptExtractor):
         try:
             response = await client.beta.messages.parse(
                 model=model,
-                max_tokens=16000,
-                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                max_tokens=max_tokens,
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": content}],
                 output_format=ReceiptExtraction,
                 **kwargs,

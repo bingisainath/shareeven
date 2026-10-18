@@ -1,15 +1,15 @@
 // src/screens/expenses/ExpenseDetailScreen.tsx
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
+import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
 import { Button } from '../../components/common/ui';
-import { Expense, expenseService, HistoryEntry } from '../../api/expenses';
+import { Expense, expenseService, HistoryEntry, Receipt } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
 import { mediaUrl } from '../../config';
 import { useAuth } from '../../store/auth';
 import { formatMinor } from '../../utils/money';
-import { personTint } from '../../utils/personColor';
+import { shareLines } from '../../utils/shareBreakdown';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from '../../components/expenses/CategoryIcon';
@@ -25,6 +25,8 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const [expense, setExpense] = useState<Expense | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [tab, setTab] = useState('details');
+  const [receipt, setReceipt] = useState<Receipt | null>(null); // explains each share of a receipt expense
+  const [open, setOpen] = useState<string | null>(null); // whose items are shown
   const { members } = useChatMoney(expense?.conversation_id);
 
   const load = useCallback(async () => {
@@ -32,6 +34,9 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
       const [e, h] = await Promise.all([expenseService.get(expenseId), expenseService.history(expenseId)]);
       setExpense(e);
       setHistory(h);
+      if (e.receipt_id && e.split_mode === 'itemized') {
+        expenseService.getReceipt(e.receipt_id).then(setReceipt).catch(() => setReceipt(null));
+      }
       navigation.setOptions({ title: e.description });
     } catch (err) {
       showAlert("Couldn't load the expense", errorMessage(err));
@@ -48,17 +53,53 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const myShare = expense.shares.find((s) => s.user_id === me.id)?.amount_minor || 0;
   const myPaid = expense.payers.find((p) => p.user_id === me.id)?.amount_minor || 0;
   const net = myPaid - myShare;
-  // Each person keeps one light colour in both lists, so it's easy to see who paid and who owes what
-  const memberIds = members.map((m) => m.id);
-  const personRow = (userId: string, minor: number, label?: string) => {
-    const tint = personTint(userId, memberIds);
+  const initials = (id: string) => {
+    if (id === me.id) return 'You';
+    const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
+    return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?').slice(0, 1)).toUpperCase();
+  };
+
+  // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.
+  // On a receipt split, tapping someone shows the items their share is made of.
+  const personRow = (userId: string, minor: number, options: { label?: string; breakdown?: boolean; last?: boolean } = {}) => {
+    const lines = options.breakdown && receipt ? shareLines(receipt, userId, minor) : null;
+    const itemCount = lines?.filter((l) => l.key.startsWith('i')).length || 0;
+    const isOpen = !!lines && open === userId;
+    const mine = userId === me.id;
     return (
-      <View key={userId} style={[styles.line, { backgroundColor: tint.bg }]}>
-        <View style={[styles.dot, { backgroundColor: tint.fg }]} />
-        <Text style={[styles.lineName, { color: tint.fg }]} numberOfLines={1}>
-          {nameOf(userId)}{label ? <Text style={styles.lineLabel}> {label}</Text> : null}
-        </Text>
-        <Text style={styles.lineAmount}>{formatMinor(minor, expense.currency)}</Text>
+      <View key={userId} style={[mine && styles.mine, !options.last && styles.divider]}>
+        <Pressable
+          disabled={!lines}
+          onPress={() => setOpen(isOpen ? null : userId)}
+          accessibilityRole={lines ? 'button' : undefined}
+          accessibilityState={lines ? { expanded: isOpen } : undefined}
+          style={({ pressed }) => [styles.line, pressed && styles.pressed]}
+        >
+          <View style={[styles.badge, mine && styles.badgeMine]}>
+            <Text style={[styles.badgeText, mine && styles.badgeTextMine]}>{initials(userId)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.lineName, mine && styles.lineNameMine]} numberOfLines={1}>
+              {nameOf(userId)}{options.label ? <Text style={styles.lineLabel}> {options.label}</Text> : null}
+            </Text>
+            {lines && <Text style={styles.lineSub}>{itemCount} {itemCount === 1 ? 'item' : 'items'}</Text>}
+          </View>
+          <Text style={styles.lineAmount}>{formatMinor(minor, expense.currency)}</Text>
+          {lines && <ChevronDown size={16} color={colors.muted400} style={isOpen ? { transform: [{ rotate: '180deg' }] } : undefined} />}
+        </Pressable>
+        {isOpen && lines && (
+          <View style={styles.items}>
+            {lines.map((l, n) => (
+              <View key={l.key} style={[styles.itemRow, n > 0 && styles.itemDivider]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.itemName}>{l.label}</Text>
+                  {l.detail && <Text style={styles.itemDetail}>{l.detail}</Text>}
+                </View>
+                <Text style={styles.itemAmount}>{formatMinor(l.amount, expense.currency)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -88,11 +129,18 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
       {tab === 'details' ? (
         <View style={styles.card}>
           <Text style={styles.section}>Paid by</Text>
-          <View style={styles.lines}>{expense.payers.map((p) => personRow(p.user_id, p.amount_minor))}</View>
+          <View style={styles.lines}>
+            {expense.payers.map((p, n) => personRow(p.user_id, p.amount_minor, { last: n === expense.payers.length - 1 }))}
+          </View>
           <Text style={[styles.section, { marginTop: space(4) }]}>Split {expense.split_mode === 'itemized' ? 'by item' : expense.split_mode === 'equal' ? 'equally' : `by ${expense.split_mode}`}</Text>
           <View style={styles.lines}>
-            {expense.shares.map((s) => personRow(s.user_id, s.amount_minor, s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined))}
+            {expense.shares.map((s, n) => personRow(s.user_id, s.amount_minor, {
+              label: s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined,
+              breakdown: expense.split_mode === 'itemized',
+              last: n === expense.shares.length - 1,
+            }))}
           </View>
+          {receipt && expense.split_mode === 'itemized' && <Text style={styles.hint}>Tap someone to see their items.</Text>}
           {expense.receipt_images.length > 0 && (
             <>
               <Text style={[styles.section, { marginTop: space(4) }]}>Receipt</Text>
@@ -154,12 +202,27 @@ const styles = StyleSheet.create({
   tabs: { alignItems: 'center', marginVertical: space(3) },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space(4), borderWidth: 1, borderColor: colors.muted200 },
   section: { fontSize: 13, fontWeight: '700', color: colors.muted600, marginBottom: space(1.5) },
-  lines: { gap: space(1.5) },
-  line: { flexDirection: 'row', alignItems: 'center', gap: space(2), paddingVertical: space(2), paddingHorizontal: space(3), borderRadius: radius.md },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  lineName: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.muted900 },
+  lines: { borderWidth: 1, borderColor: colors.muted200, borderRadius: radius.lg, overflow: 'hidden' },
+  divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.muted200 },
+  mine: { backgroundColor: colors.primary50 },
+  line: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingVertical: space(2.5), paddingHorizontal: space(3) },
+  pressed: { backgroundColor: colors.primary100 },
+  badge: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary100, alignItems: 'center', justifyContent: 'center' },
+  badgeMine: { backgroundColor: colors.primary600 },
+  badgeText: { fontSize: 11, fontWeight: '700', color: colors.primary700 },
+  badgeTextMine: { color: colors.white },
+  lineName: { fontSize: 15, fontWeight: '500', color: colors.muted900 },
+  lineNameMine: { fontWeight: '700', color: colors.primary800 },
+  lineSub: { fontSize: 12, color: colors.muted500, marginTop: 1 },
   lineLabel: { fontWeight: '400', color: colors.muted500 },
   lineAmount: { fontSize: 15, fontWeight: '600', color: colors.muted900 },
+  items: { marginHorizontal: space(3), marginBottom: space(3), borderWidth: 1, borderColor: colors.primary100, borderRadius: radius.md, backgroundColor: colors.white },
+  itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space(3), paddingVertical: space(2), paddingHorizontal: space(3) },
+  itemDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.primary100 },
+  itemName: { fontSize: 13, color: colors.muted900 },
+  itemDetail: { fontSize: 12, color: colors.muted500, marginTop: 1 },
+  itemAmount: { fontSize: 13, color: colors.muted900 },
+  hint: { marginTop: space(1.5), fontSize: 12, color: colors.muted500 },
   images: { flexDirection: 'row', gap: space(2) },
   receipt: { width: 80, height: 104, borderRadius: radius.sm, backgroundColor: colors.muted100 },
   event: { flexDirection: 'row', gap: space(3), paddingVertical: space(2) },

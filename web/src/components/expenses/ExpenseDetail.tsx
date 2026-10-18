@@ -2,15 +2,15 @@
 // One expense: who paid, who owes, the receipt photos, and the full history of changes.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import CategoryIcon from './CategoryIcon';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
-import type { Expense, HistoryEntry } from '../../services/expense.service';
+import type { Expense, HistoryEntry, Receipt } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
-import { personTint } from '../../utils/personColor';
+import { shareLines } from '../../utils/shareBreakdown';
 import AddExpenseSheet from './AddExpenseSheet';
 import { displayName, Money, Segmented, Sheet, useChatMoney, useExpenseChanges } from './shared';
 import { confirmDialog } from '../organisms/ConfirmDialog';
@@ -32,6 +32,8 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
   const [tab, setTab] = useState<'details' | 'history'>('details');
   const [editing, setEditing] = useState<'manual' | 'receipt' | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null); // explains each share of a receipt expense
+  const [open, setOpen] = useState<string | null>(null); // whose items are shown
   const { members } = useChatMoney(expense?.conversation_id);
 
   const load = useCallback(async () => {
@@ -39,6 +41,9 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
       const [e, h] = await Promise.all([expenseService.get(expenseId), expenseService.history(expenseId)]);
       setExpense(e);
       setHistory(h);
+      if (e.receipt_id && e.split_mode === 'itemized') {
+        expenseService.getReceipt(e.receipt_id).then(setReceipt).catch(() => setReceipt(null));
+      }
       if (startEditing && e.can_edit && !e.deleted) setEditing((current) => current ?? 'manual');
     } catch (error) {
       toast.error(parseApiError(error));
@@ -51,19 +56,58 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
 
   const nameOf = (id: string) =>
     id === currentUserId ? 'You' : displayName(members.find((m) => m.id === id));
-  // Each person keeps one light colour in both lists, so it's easy to see who paid and who owes what
-  const memberIds = members.map((m) => m.id);
-  const personRow = (userId: string, minor: number, label?: string) => {
-    const tint = personTint(userId, memberIds);
-    return (
-      <div key={userId} className="flex items-center justify-between gap-3 text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: tint.bg }}>
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="w-2 h-2 flex-shrink-0 rounded-full" style={{ backgroundColor: tint.fg }} aria-hidden />
-          <span className="truncate font-medium" style={{ color: tint.fg }}>{nameOf(userId)}</span>
-          {label && <span className="text-muted-500">{label}</span>}
+  const initials = (id: string) => {
+    if (id === currentUserId) return 'You';
+    const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
+    return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?').slice(0, 1)).toUpperCase();
+  };
+
+  // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.
+  // On a receipt split, tapping someone shows the items their share is made of.
+  const personRow = (userId: string, minor: number, options: { label?: string; breakdown?: boolean } = {}) => {
+    const lines = options.breakdown && receipt ? shareLines(receipt, userId, minor) : null;
+    const itemCount = lines?.filter((l) => l.key.startsWith('i')).length || 0;
+    const isOpen = !!lines && open === userId;
+    const mine = userId === currentUserId;
+    const row = (
+      <>
+        <span className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-[11px] font-semibold ${mine ? 'bg-primary-600 text-white' : 'bg-primary-100 text-primary-700'}`} aria-hidden>
+          {initials(userId)}
+        </span>
+        <span className="flex-1 min-w-0 text-left">
+          <span className={`block truncate ${mine ? 'font-semibold text-primary-800' : 'font-medium text-muted-900'}`}>
+            {nameOf(userId)}{options.label && <span className="font-normal text-muted-500"> {options.label}</span>}
+          </span>
+          {lines && <span className="block text-xs text-muted-500">{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>}
         </span>
         <Money minor={minor} currency={expense?.currency || ''} className="font-semibold text-muted-900" />
-      </div>
+        {lines && <ChevronDown size={16} className={`flex-shrink-0 text-muted-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+      </>
+    );
+    return (
+      <li key={userId} className={mine ? 'bg-primary-50/70' : undefined}>
+        {lines ? (
+          <button type="button" onClick={() => setOpen(isOpen ? null : userId)} aria-expanded={isOpen}
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-primary-50 transition-colors">
+            {row}
+          </button>
+        ) : (
+          <div className="flex items-center gap-3 px-3 py-2.5 text-sm">{row}</div>
+        )}
+        {isOpen && lines && (
+          <ul className="mx-3 mb-3 rounded-lg bg-white border border-primary-100 divide-y divide-primary-50">
+            {lines.map((l) => (
+              <li key={l.key} className="flex items-start justify-between gap-3 px-3 py-2 text-[13px]">
+                <span className="min-w-0">
+                  <span className="block text-muted-800">{l.label}</span>
+                  {l.detail && <span className="block text-xs text-muted-500">{l.detail}</span>}
+                </span>
+                <Money minor={l.amount} currency={expense?.currency || ''} className="flex-shrink-0 text-muted-900" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
     );
   };
 
@@ -129,16 +173,21 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
         <div className="space-y-5">
           <section>
             <h3 className="text-sm font-semibold text-muted-700 mb-2">Paid by</h3>
-            <div className="space-y-1.5">
+            <ul className="rounded-xl border border-muted-200 divide-y divide-muted-100 overflow-hidden">
               {expense.payers.map((p) => personRow(p.user_id, p.amount_minor))}
-            </div>
+            </ul>
           </section>
           <section>
             <h3 className="text-sm font-semibold text-muted-700 mb-2">Split {expense.split_mode === 'itemized' ? 'by item' : expense.split_mode === 'equal' ? 'equally' : `by ${expense.split_mode}`}</h3>
-            <div className="space-y-1.5">
-              {expense.shares.map((s) =>
-                personRow(s.user_id, s.amount_minor, s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined))}
-            </div>
+            <ul className="rounded-xl border border-muted-200 divide-y divide-muted-100 overflow-hidden">
+              {expense.shares.map((s) => personRow(s.user_id, s.amount_minor, {
+                label: s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined,
+                breakdown: expense.split_mode === 'itemized',
+              }))}
+            </ul>
+            {receipt && expense.split_mode === 'itemized' && (
+              <p className="mt-1.5 text-xs text-muted-500">Tap someone to see their items.</p>
+            )}
           </section>
           {expense.receipt_images.length > 0 && (
             <section>

@@ -13,5 +13,8 @@ export const EXPENSE_CHANGED_EVENT = 'papyris:expense-changed';
 /** detail: { receiptId, conversationId, status, error }. The AI finished reading a receipt. */
 export const RECEIPT_READY_EVENT = 'papyris:receipt-ready';
 
+/** detail: { receiptId, conversationId, step, label }. The AI moved on to the next step of reading a receipt. */
+export const RECEIPT_PROGRESS_EVENT = 'papyris:receipt-progress';
+
 /** detail: { conversationId, expenseId? }. Open the add-expense sheet (or an expense) in a chat. */
 export const OPEN_EXPENSE_EVENT = 'papyris:open-expense';

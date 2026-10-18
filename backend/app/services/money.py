@@ -77,7 +77,7 @@ def parse_decimal(value: str | int | float | Decimal) -> Decimal:
         return Decimal(value)
     if isinstance(value, float):
         return Decimal(str(value))
-    text = str(value).strip().replace(" ", "").replace(" ", "")
+    text = str(value).strip().replace(" ", "").replace(" ", "").replace("−", "-")  # U+2212 minus sign
     for symbol in ("€", "$", "£", "₹", "¥"):
         text = text.replace(symbol, "")
     if "," in text and "." in text:

@@ -169,11 +169,25 @@ export interface ReceiptAdjustment {
   enabled: boolean;
 }
 
+export interface ScanStep {
+  step: 'ocr' | 'items' | 'photo' | 'second_look' | 'totals';
+  label: string;
+}
+
+/** One piece of a person's share on a receipt: their part of an item (index into items, after
+ * discounts), of an adjustment they were given (index into adjustments), or a cent of rounding. */
+export interface SharePart {
+  type: 'item' | 'adjustment' | 'rounding';
+  id: number | null;
+  amount: number;
+}
+
 export interface Receipt {
   id: string;
   conversation_id: string;
   uploaded_by: string | null;
   status: 'processing' | 'ready' | 'needs_review' | 'failed' | 'saved';
+  progress: ScanStep | null; // while processing: the step it's on
   error: string | null;
   images: string[];
   note: string | null;
@@ -196,7 +210,7 @@ export interface Receipt {
     outside_receipt_minor: number;
     unassigned_minor: number;
     unassigned_item_indexes: number[];
-    people: { user_id: string; amount_minor: number }[];
+    people: { user_id: string; amount_minor: number; breakdown: SharePart[] }[];
   } | null;
   calc_error: string | null;
   expense_id: string | null;

@@ -480,3 +480,222 @@ async def test_the_10_percent_falls_on_the_other_items_when_the_ai_assigned_the_
     assert nets["Eggs"] == 765
     assert all(nets[LATE_TESCO_LINES[n][0]] == 0 for n in SPECIAL_OFFER)
     assert all(v >= 0 for v in nets.values()) and receipt["totals"]["difference_minor"] == 0
+
+
+# ------------------------------------------------------------------ cheap path: OCR text -> small model
+
+class OcrFakeExtractor(FakeExtractor):
+    """Also reads OCR text, like ClaudeExtractor.extract_text."""
+
+    def __init__(self):
+        super().__init__()
+        self.text_response = TESCO
+        self.text_calls = []
+
+    async def extract_text(self, pages, note, model, api_key):
+        self.text_calls.append({"pages": pages, "model": model})
+        return ExtractionResult(ReceiptExtraction.model_validate(self.text_response), model, {"input_tokens": 900, "output_tokens": 300})
+
+
+@pytest.fixture
+def ocr_ai(monkeypatch):
+    from app.services.receipt_ai import ocr
+    fake = OcrFakeExtractor()
+    fake.ocr_confidence = 0.98
+    monkeypatch.setitem(pipeline.EXTRACTORS, "anthropic", fake)
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-server-key")
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "claude-sonnet-5")
+    monkeypatch.setattr(settings, "RECEIPT_OCR_DEBUG_DIR", "")  # a developer's .env may switch it on
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "read_photo", lambda data: ocr.OcrPage(
+        text="  TESCO\n  Milk  €1.80\n  Cheese  €4.00\n  Rice  €12.00\n  TOTAL  €18.20", confidence=fake.ocr_confidence,
+        rows=5, unsure_rows=0, seconds=0.1, turned=0))
+    return fake
+
+
+async def _usage(db, receipt_id):
+    from app.models.receipt import Receipt
+    return (await db.execute(select(Receipt.usage).where(Receipt.id == uuid.UUID(receipt_id)))).scalar_one()
+
+
+async def test_ocr_read_that_adds_up_skips_the_photo_model(client, six, ocr_ai, db):
+    people, group = await six()
+    receipt = await scan(client, people[0], group, note="weekly shop")
+    assert ocr_ai.calls == []  # the expensive photo model never ran
+    assert [c["model"] for c in ocr_ai.text_calls] == ["claude-sonnet-5"]
+    assert "TOTAL  €18.20" in ocr_ai.text_calls[0]["pages"][0]
+    assert receipt["status"] == "ready" and receipt["model"] == "claude-sonnet-5"
+    usage = await _usage(db, receipt["id"])
+    assert usage["path"] == "ocr" and usage["input_tokens"] == 900 and usage["output_tokens"] == 300
+    assert usage["ocr"]["confidence"] == 0.98
+
+
+async def test_ocr_read_that_doesnt_add_up_goes_to_the_photo_model(client, six, ocr_ai, db):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}  # a misread digit somewhere
+    receipt = await scan(client, people[0], group)
+    assert len(ocr_ai.text_calls) == 1 and ocr_ai.calls[0]["model"] == "claude-opus-5"
+    assert receipt["status"] == "ready" and receipt["model"] == "claude-opus-5"
+    usage = await _usage(db, receipt["id"])
+    assert usage["path"] == "ocr_then_photos"
+    assert usage["ocr"]["rejected"]["computed_total"] == "18.20" and usage["ocr"]["rejected"]["printed_total"] == "19.20"
+    assert usage["input_tokens"] == 900 + 1500 and usage["output_tokens"] == 300 + 400  # both calls count
+    assert [c["model"] for c in usage["calls"]] == ["claude-sonnet-5", "claude-opus-5"]
+
+
+async def test_unclear_ocr_skips_the_text_model(client, six, ocr_ai, db):
+    people, group = await six()
+    ocr_ai.ocr_confidence = 0.90
+    receipt = await scan(client, people[0], group)
+    assert ocr_ai.text_calls == [] and len(ocr_ai.calls) == 1
+    assert receipt["model"] == "claude-opus-5"
+    assert (await _usage(db, receipt["id"]))["path"] == "ocr_then_photos"
+
+
+async def test_photo_model_failing_keeps_the_ocr_read(client, six, ocr_ai):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    ocr_ai.error = "Claude is busy or the key is out of credit. Try again in a minute"
+    receipt = await scan(client, people[0], group)
+    assert receipt["status"] == "needs_review" and receipt["model"] == "claude-sonnet-5"
+    assert any("add up to" in w for w in receipt["warnings"])
+
+
+async def test_ocr_path_off_without_a_text_model(client, six, ocr_ai, monkeypatch):
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "")
+    people, group = await six()
+    await scan(client, people[0], group)
+    assert ocr_ai.text_calls == [] and len(ocr_ai.calls) == 1
+
+
+def test_adds_up():
+    data = ReceiptExtraction.model_validate(TESCO)
+    assert pipeline.adds_up(data)  # 21.90 - 1.20 - 2.50 = 18.20; VAT inside prices not added
+    unsigned = {**TESCO, "adjustments": [adjustment("item_discount", "Cc", "1.20", [3]), *TESCO["adjustments"][1:]]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(unsigned))  # faded minus sign
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": "18.21"}))
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": None}))
+    unsure = {**TESCO, "items": [*TESCO["items"][:4], item("Croissants", "2.50", confidence=0.4)]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(unsure))  # only the money decides
+    on_top = {**TESCO, "total": "19.30", "adjustments": [*TESCO["adjustments"][:2], adjustment("tax", "Tax", "1.10")]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(on_top))  # US-style tax added on top
+
+
+def test_a_summary_line_counted_twice_is_dropped_only_when_that_makes_it_add_up():
+    doubled = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("promotion", "Promotions", "-3.70")]}
+    fixed = pipeline.without_summary_lines(ReceiptExtraction.model_validate(doubled))
+    assert pipeline.adds_up(fixed) and [a.label for a in fixed.adjustments] == ["Reduced", "Reduced", "VAT incl."]
+    # Label cut off by the OCR ("IS:" for "Promotions:"): it equals the item discounts above it
+    cut = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "IS: Discount", "-3.70")]}
+    assert pipeline.adds_up(pipeline.without_summary_lines(ReceiptExtraction.model_validate(cut)))
+    # Cash "Change rounding" after the total isn't part of the bill
+    cash = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("rounding", "Change rounding", "0.01")]}
+    assert pipeline.adds_up(pipeline.without_summary_lines(ReceiptExtraction.model_validate(cash)))
+    rounded_total = {**cash, "total": "18.21"}  # rounding that is inside the total stays
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(rounded_total)).adjustments) == 4
+    # A real bill-wide discount stays, even when the receipt doesn't add up
+    real = {**TESCO, "total": "17.00", "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "Colleague Discount", "-1.00")]}
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(real)).adjustments) == 4
+    # A summary line whose removal doesn't fix the sum stays too (the review screen shows it)
+    wrong = {**doubled, "total": "15.00"}
+    assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(wrong)).adjustments) == 4
+
+
+async def test_unsure_names_that_add_up_stay_on_the_cheap_path_for_review(client, six, ocr_ai):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "items": [*TESCO["items"][:4], item("Unclear item", "2.50", confidence=0.3)]}
+    receipt = await scan(client, people[0], group)
+    assert ocr_ai.calls == [] and receipt["model"] == "claude-sonnet-5"
+    assert receipt["status"] == "needs_review"
+    assert any("Not sure about: Unclear item" in w for w in receipt["warnings"])
+
+
+async def test_debug_folder_gets_the_ocr_text_and_model_outputs(client, six, ocr_ai, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "RECEIPT_OCR_DEBUG_DIR", str(tmp_path / "ocr_debug"))
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    receipt = await scan(client, people[0], group)
+    [folder] = list((tmp_path / "ocr_debug").iterdir())
+    assert folder.name.endswith(receipt["id"])
+    assert sorted(f.name for f in folder.iterdir()) == [
+        "photo1_ocr.txt", "photo_model_claude-opus-5.json", "text_model_claude-sonnet-5.json", "usage.json"]
+    assert "TOTAL  €18.20" in (folder / "photo1_ocr.txt").read_text()
+
+
+def test_adds_up_parses_amounts_like_the_money_code():
+    big = {**TESCO, "items": [*TESCO["items"], item("TV", "1,000.00")], "total": "1,018.20"}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(big))  # thousands separator
+    comma = {**TESCO, "items": [item("Milk", "1,80"), *TESCO["items"][1:]], "total": "18,20"}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(comma))  # decimal comma
+    minus = {**TESCO, "total": "19.30", "adjustments": [*TESCO["adjustments"][:2], adjustment("fee", "Bag", "1.10"),
+                                                         adjustment("rounding", "Rounding", "−0.00")]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(minus))  # U+2212 minus sign
+    assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": "abc"}))
+
+
+def test_voided_lines_dont_count_like_in_the_split_engine():
+    voided = {**TESCO, "items": [*TESCO["items"], item("Wine", "9.99", flags=["voided"])]}
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(voided))
+
+
+async def test_text_model_crash_falls_back_to_the_photos(client, six, ocr_ai, db):
+    async def crash(*args, **kwargs):
+        raise RuntimeError("unexpected")
+    ocr_ai.extract_text = crash
+    people, group = await six()
+    receipt = await scan(client, people[0], group)
+    assert receipt["model"] == "claude-opus-5" and len(ocr_ai.calls) == 1
+    assert (await _usage(db, receipt["id"]))["ocr"]["rejected"]["reason"] == "text model failed: unexpected"
+
+
+async def test_photo_model_crash_keeps_the_ocr_read(client, six, ocr_ai):
+    async def crash(*args, **kwargs):
+        raise RuntimeError("unexpected")
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    ocr_ai.extract = crash
+    people, group = await six()
+    receipt = await scan(client, people[0], group)
+    assert receipt["model"] == "claude-sonnet-5" and receipt["status"] == "needs_review"
+
+
+async def test_no_thinking_setting_on_models_that_always_think(monkeypatch):
+    from app.services.receipt_ai import claude
+    sent = []
+
+    class Messages:
+        async def parse(self, **kwargs):
+            sent.append(kwargs)
+            raise claude.anthropic.APIConnectionError(request=None)
+
+    class Client:
+        beta = type("Beta", (), {"messages": Messages()})()
+
+    monkeypatch.setattr(claude, "make_client", lambda *a, **k: Client())
+    monkeypatch.setattr(settings, "RECEIPT_OCR_EFFORT", "none")
+    for model in ("claude-sonnet-5", "claude-opus-5-5"):
+        with pytest.raises(ExtractionError):
+            await claude.ClaudeExtractor().extract_text(["TOTAL 1.00"], None, model, "key")
+    assert sent[0]["thinking"] == {"type": "disabled"} and "output_config" not in sent[0]
+    assert sent[1]["thinking"] == {"type": "adaptive"} and sent[1]["output_config"] == {"effort": "low"}
+    assert sent[0]["max_tokens"] == settings.RECEIPT_OCR_MAX_TOKENS
+
+
+async def test_the_uploader_sees_each_step_of_the_scan(client, six, ocr_ai, events, monkeypatch):
+    people, group = await six()
+
+    def steps():
+        return [p["step"] for _, p in events if p.get("type") == "receipt_scan_progress"]
+
+    await scan(client, people[0], group)
+    assert steps() == ["ocr", "items", "totals"]
+
+    events.clear()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    await scan(client, people[0], group)
+    assert steps() == ["ocr", "items", "second_look", "totals"]
+
+    events.clear()
+    monkeypatch.setattr(settings, "RECEIPT_OCR_MODEL", "")
+    receipt = await scan(client, people[0], group)
+    assert steps() == ["photo", "totals"]
+    assert receipt["progress"] is None and pipeline.SCAN_PROGRESS == {}  # cleared once done
