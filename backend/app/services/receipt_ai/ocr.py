@@ -90,36 +90,48 @@ def _span(box, axis: int) -> float:
 
 
 def layout(boxes, texts, scores) -> tuple[str, list[dict]]:
-    """Group OCR pieces into printed rows and place each at its column, so tables keep their shape."""
+    """
+    Group OCR pieces into printed rows and place each at its column, so tables keep their shape.
+    Receipts curl, so one angle for the whole photo puts prices half a row off. Instead each row
+    follows the slant of its own widest piece (the item text): a price joins the row whose line,
+    extended to the right, passes through it.
+    """
     pieces = []
     for box, text, score in zip(boxes, texts, scores):
         (x0, y0), (x1, y1), _, (x3, y3) = box[0], box[1], box[2], box[3]
         pieces.append({
             "text": text, "score": float(score),
-            "angle": math.atan2(y1 - y0, x1 - x0),
-            "x": float(min(p[0] for p in box)), "cy": float(sum(p[1] for p in box) / 4),
+            "slope": (y1 - y0) / (x1 - x0) if x1 != x0 else 0.0,
+            "x": float(min(p[0] for p in box)), "right": float(max(p[0] for p in box)),
+            "cx": float(sum(p[0] for p in box) / 4), "cy": float(sum(p[1] for p in box) / 4),
             "w": float(math.hypot(x1 - x0, y1 - y0)), "h": float(math.hypot(x3 - x0, y3 - y0)),
         })
     if not pieces:
         return "", []
 
-    # Undo a slightly tilted photo so one printed row has one y
-    wide = [p["angle"] for p in pieces if p["w"] > 2 * p["h"]]
-    tilt = statistics.median(wide) if wide else 0.0
-    cos, sin = math.cos(-tilt), math.sin(-tilt)
-    for p in pieces:
-        p["x"], p["cy"] = p["x"] * cos - p["cy"] * sin, p["x"] * sin + p["cy"] * cos
-
     line_h = statistics.median(p["h"] for p in pieces)
-    rows: list[list[dict]] = []
-    for p in sorted(pieces, key=lambda p: p["cy"]):
-        if rows and abs(p["cy"] - statistics.mean(q["cy"] for q in rows[-1])) < line_h * 0.5:
-            rows[-1].append(p)
-        else:
-            rows.append([p])
 
-    char_w = statistics.median(p["w"] / max(len(p["text"]), 1) for p in pieces)
+    def y_at(row: list[dict], x: float) -> float:
+        anchor = max(row, key=lambda p: p["w"])
+        return anchor["cy"] + anchor["slope"] * (x - anchor["cx"])
+
+    rows: list[list[dict]] = []
+    for p in sorted(pieces, key=lambda p: p["x"]):
+        best, best_gap = None, line_h * 0.5
+        for row in rows:
+            if p["x"] < max(q["right"] for q in row) - line_h * 0.3:
+                continue  # overlaps what's already on that row
+            gap = abs(p["cy"] - y_at(row, p["cx"]))
+            if gap < best_gap:
+                best, best_gap = row, gap
+        if best is None:
+            rows.append([p])
+        else:
+            best.append(p)
+
     left = min(p["x"] for p in pieces)
+    rows.sort(key=lambda row: y_at(row, left))
+    char_w = statistics.median(p["w"] / max(len(p["text"]), 1) for p in pieces)
     lines, out_rows = [], []
     for row in rows:
         row.sort(key=lambda p: p["x"])

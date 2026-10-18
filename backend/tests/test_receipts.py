@@ -537,6 +537,7 @@ async def test_ocr_read_that_doesnt_add_up_goes_to_the_photo_model(client, six, 
     assert receipt["status"] == "ready" and receipt["model"] == "claude-opus-5"
     usage = await _usage(db, receipt["id"])
     assert usage["path"] == "ocr_then_photos"
+    assert usage["ocr"]["rejected"]["computed_total"] == "18.20" and usage["ocr"]["rejected"]["printed_total"] == "19.20"
     assert usage["input_tokens"] == 900 + 1500 and usage["output_tokens"] == 300 + 400  # both calls count
     assert [c["model"] for c in usage["calls"]] == ["claude-sonnet-5", "claude-opus-5"]
 
@@ -574,7 +575,7 @@ def test_adds_up():
     assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": "18.21"}))
     assert not pipeline.adds_up(ReceiptExtraction.model_validate({**TESCO, "total": None}))
     unsure = {**TESCO, "items": [*TESCO["items"][:4], item("Croissants", "2.50", confidence=0.4)]}
-    assert not pipeline.adds_up(ReceiptExtraction.model_validate(unsure))
+    assert pipeline.adds_up(ReceiptExtraction.model_validate(unsure))  # only the money decides
     on_top = {**TESCO, "total": "19.30", "adjustments": [*TESCO["adjustments"][:2], adjustment("tax", "Tax", "1.10")]}
     assert pipeline.adds_up(ReceiptExtraction.model_validate(on_top))  # US-style tax added on top
 
@@ -583,9 +584,33 @@ def test_a_summary_line_counted_twice_is_dropped_only_when_that_makes_it_add_up(
     doubled = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("promotion", "Promotions", "-3.70")]}
     fixed = pipeline.without_summary_lines(ReceiptExtraction.model_validate(doubled))
     assert pipeline.adds_up(fixed) and [a.label for a in fixed.adjustments] == ["Reduced", "Reduced", "VAT incl."]
+    # Label cut off by the OCR ("IS:" for "Promotions:"): it equals the item discounts above it
+    cut = {**TESCO, "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "IS: Discount", "-3.70")]}
+    assert pipeline.adds_up(pipeline.without_summary_lines(ReceiptExtraction.model_validate(cut)))
     # A real bill-wide discount stays, even when the receipt doesn't add up
     real = {**TESCO, "total": "17.00", "adjustments": [*TESCO["adjustments"], adjustment("store_discount", "Colleague Discount", "-1.00")]}
     assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(real)).adjustments) == 4
     # A summary line whose removal doesn't fix the sum stays too (the review screen shows it)
     wrong = {**doubled, "total": "15.00"}
     assert len(pipeline.without_summary_lines(ReceiptExtraction.model_validate(wrong)).adjustments) == 4
+
+
+async def test_unsure_names_that_add_up_stay_on_the_cheap_path_for_review(client, six, ocr_ai):
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "items": [*TESCO["items"][:4], item("Unclear item", "2.50", confidence=0.3)]}
+    receipt = await scan(client, people[0], group)
+    assert ocr_ai.calls == [] and receipt["model"] == "claude-sonnet-5"
+    assert receipt["status"] == "needs_review"
+    assert any("Not sure about: Unclear item" in w for w in receipt["warnings"])
+
+
+async def test_debug_folder_gets_the_ocr_text_and_model_outputs(client, six, ocr_ai, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "RECEIPT_OCR_DEBUG_DIR", str(tmp_path / "ocr_debug"))
+    people, group = await six()
+    ocr_ai.text_response = {**TESCO, "total": "19.20"}
+    receipt = await scan(client, people[0], group)
+    [folder] = list((tmp_path / "ocr_debug").iterdir())
+    assert folder.name.endswith(receipt["id"])
+    assert sorted(f.name for f in folder.iterdir()) == [
+        "photo1_ocr.txt", "photo_model_claude-opus-5.json", "text_model_claude-sonnet-5.json", "usage.json"]
+    assert "TOTAL  €18.20" in (folder / "photo1_ocr.txt").read_text()

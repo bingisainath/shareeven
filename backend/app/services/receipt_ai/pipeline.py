@@ -162,12 +162,11 @@ def _computed_total(data: ReceiptExtraction) -> Decimal:
 
 def adds_up(data: ReceiptExtraction) -> bool:
     """
-    Do the lines add up to the printed total, with every line read confidently? The same sum the
-    split engine checks later; decides whether the cheap OCR read is trusted.
+    Do the lines add up to the printed total to the cent? The same sum the split engine checks
+    later; decides whether the cheap OCR read is trusted. Lines the model was unsure about (a
+    name the OCR garbled) don't matter here: the review screen flags them.
     """
     if not data.is_receipt or not data.items or not data.total:
-        return False
-    if any(i.confidence < LOW_CONFIDENCE for i in data.items):
         return False
     try:
         return _computed_total(data) == _amount(data.total)
@@ -181,15 +180,24 @@ SUMMARY_LABEL = re.compile(r"\b(promotions?|savings|you saved)\b", re.IGNORECASE
 def without_summary_lines(data: ReceiptExtraction) -> ReceiptExtraction:
     """
     Models sometimes report a summary line ("Promotions: -1.26" under the subtotal, repeating the
-    item discounts above it) as one more bill-wide discount, so it counts twice. Drop such lines,
-    but only when that makes the lines add up to the printed total exactly.
+    item discounts above it) as one more bill-wide discount, so it counts twice. Such a line is
+    named like a summary, or (when the OCR cut its label off) equals the item discounts above it.
+    Drop it, but only when that makes the lines add up to the printed total exactly.
     """
     if adds_up(data):
         return data
-    kept = [a for a in data.adjustments if a.applies_to_items or not SUMMARY_LABEL.search(a.label or "")]
-    if len(kept) == len(data.adjustments):
+    try:
+        item_discounts = sum((abs(_amount(a.amount)) for a in data.adjustments
+                              if a.applies_to_items and a.kind in DISCOUNT_KINDS), Decimal(0))
+        repeats = {i for i, a in enumerate(data.adjustments) if not a.applies_to_items and item_discounts
+                   and abs(_amount(a.amount)) == item_discounts}
+    except InvalidOperation:
+        repeats = set()
+    summaries = {i for i, a in enumerate(data.adjustments) if not a.applies_to_items and SUMMARY_LABEL.search(a.label or "")}
+    drop = summaries | repeats
+    if not drop:
         return data
-    fixed = data.model_copy(update={"adjustments": kept})
+    fixed = data.model_copy(update={"adjustments": [a for i, a in enumerate(data.adjustments) if i not in drop]})
     return fixed if adds_up(fixed) else data
 
 
@@ -198,13 +206,13 @@ def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
         and hasattr(extractor, "extract_text") and ocr.available()
 
 
-async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str) -> tuple[ExtractionResult | None, dict]:
-    """OCR on our CPU, then the cheap text model. (None, notes) when the photos aren't clear enough."""
+async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str) -> tuple[list, ExtractionResult | None, dict]:
+    """OCR on our CPU, then the cheap text model. (pages, None, notes) when that didn't work."""
     try:
         pages = await asyncio.to_thread(lambda: [ocr.read_photo(p) for p in photos])
     except Exception:
         logger.exception("Receipt %s: OCR crashed, reading the photos instead", receipt.id)
-        return None, {"ocr": {"error": True}}
+        return [], None, {"ocr": {"error": "OCR crashed"}}
     notes = {"ocr": {
         "seconds": round(sum(p.seconds for p in pages), 2),
         "confidence": round(min(p.confidence for p in pages), 3),
@@ -212,13 +220,31 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
     }}
     if any(p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE or p.rows < 5 for p in pages):
         logger.info("Receipt %s: OCR not clear enough (%s), reading the photos instead", receipt.id, notes["ocr"])
-        return None, notes
+        notes["ocr"]["rejected"] = {"reason": "photo too unclear for OCR"}
+        return pages, None, notes
     try:
         result = await extractor.extract_text([p.text for p in pages], receipt.note, settings.RECEIPT_OCR_MODEL, api_key)
     except ExtractionError as e:
         logger.info("Receipt %s: text model failed (%s), reading the photos instead", receipt.id, e)
-        return None, notes
-    return result, notes
+        notes["ocr"]["rejected"] = {"reason": f"text model failed: {e}"}
+        return pages, None, notes
+    return pages, result, notes
+
+
+def _rejection(data: ReceiptExtraction) -> dict:
+    """Why a cheap read wasn't trusted, kept in receipt.usage so it can be checked without re-running."""
+    try:
+        computed = str(_computed_total(data))
+    except InvalidOperation:
+        computed = None
+    return {
+        "reason": "lines don't add up to the printed total",
+        "computed_total": computed,
+        "printed_total": data.total,
+        "items": len(data.items),
+        "unsure": [i.name for i in data.items if i.confidence < LOW_CONFIDENCE][:10],
+        "warnings": data.warnings[:10],
+    }
 
 
 def _combined_usage(path: str, notes: dict, *results: ExtractionResult) -> dict:
@@ -234,22 +260,55 @@ def _combined_usage(path: str, notes: dict, *results: ExtractionResult) -> dict:
     }
 
 
+def _save_debug(receipt: Receipt, pages: list, cheap: ExtractionResult | None, final: ExtractionResult) -> None:
+    """
+    TEMPORARY, for testing the OCR path by hand: with RECEIPT_OCR_DEBUG_DIR set, write what the OCR
+    read and what each model returned to <dir>/<time>_<receipt id>/. Plain text on disk (the
+    photos themselves stay encrypted), so keep it off on a real server.
+    """
+    if not settings.RECEIPT_OCR_DEBUG_DIR:
+        return
+    import json
+    from pathlib import Path
+    try:
+        root = Path(settings.RECEIPT_OCR_DEBUG_DIR)
+        root = root if root.is_absolute() else media_storage.BACKEND_ROOT / root
+        folder = root / f"{datetime.now():%Y%m%d-%H%M%S}_{receipt.id}"
+        folder.mkdir(parents=True, exist_ok=True)
+        for number, page in enumerate(pages, 1):
+            (folder / f"photo{number}_ocr.txt").write_text(
+                f"# confidence {page.confidence:.3f}, {page.rows} rows, {page.unsure_rows} unsure, "
+                f"{page.seconds}s, turned {page.turned}\n{page.text}\n")
+        if cheap is not None:
+            (folder / f"text_model_{cheap.model}.json").write_text(json.dumps(cheap.data.model_dump(mode="json"), indent=1))
+        if final is not cheap:
+            (folder / f"photo_model_{final.model}.json").write_text(json.dumps(final.data.model_dump(mode="json"), indent=1))
+        (folder / "usage.json").write_text(json.dumps(final.usage, indent=1))
+    except Exception:
+        logger.exception("Receipt %s: couldn't write the OCR debug files", receipt.id)
+
+
 async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: list[bytes], api_key: str) -> ExtractionResult:
     """
-    Cheap path first: OCR text -> cheaper text model (~3 cents). Trusted only when every line was
-    read confidently and the lines add up to the printed total; otherwise the photos go to the
-    model the admins chose, as before.
+    Cheap path first: OCR text -> cheaper text model (~2-3 cents). Trusted when its lines add up
+    to the printed total; otherwise the photos go to the model the admins chose, as before.
     """
-    cheap, notes = None, {}
-    if _ocr_path_on(receipt, extractor):
-        cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key)
-        if cheap is not None:
-            cheap.data = without_summary_lines(cheap.data)
-        if cheap is not None and adds_up(cheap.data):
+    if not _ocr_path_on(receipt, extractor):
+        images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
+        result = await extractor.extract(images, receipt.note, receipt.model, api_key)
+        result.data = without_summary_lines(result.data)
+        return result
+
+    pages, cheap, notes = await _read_with_ocr(receipt, extractor, photos, api_key)
+    if cheap is not None:
+        cheap.data = without_summary_lines(cheap.data)
+        if adds_up(cheap.data):
             cheap.usage = _combined_usage("ocr", notes, cheap)
+            _save_debug(receipt, pages, cheap, cheap)
             return cheap
-        if cheap is not None:
-            logger.info("Receipt %s: OCR read doesn't add up, reading the photos with %s", receipt.id, receipt.model)
+        notes["ocr"]["rejected"] = _rejection(cheap.data)
+        logger.info("Receipt %s: OCR read doesn't add up (%s), reading the photos with %s",
+                    receipt.id, notes["ocr"]["rejected"], receipt.model)
 
     images = await asyncio.to_thread(lambda: [prepare(p) for p in photos])
     try:
@@ -260,9 +319,10 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
             raise
         # The cheap read didn't add up, but it's better than nothing: the review screen flags the lines
         cheap.usage = _combined_usage("ocr", notes, cheap)
+        _save_debug(receipt, pages, cheap, cheap)
         return cheap
-    if notes:
-        result.usage = _combined_usage("ocr_then_photos", notes, *([cheap] if cheap else []), result)
+    result.usage = _combined_usage("ocr_then_photos", notes, *([cheap] if cheap else []), result)
+    _save_debug(receipt, pages, cheap, result)
     return result
 
 

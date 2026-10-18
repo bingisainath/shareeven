@@ -49,12 +49,18 @@ class ClaudeExtractor(ReceiptExtractor):
     async def extract_text(self, pages: list[str], note: str | None, model: str, api_key: str) -> ExtractionResult:
         """The cheap path: the receipt as OCR text (app/services/receipt_ai/ocr.py), no photos."""
         content = [{"type": "text", "text": ocr_user_text(pages, note)}]
-        return await self._read(content, SYSTEM_PROMPT + OCR_NOTES, model, api_key, settings.RECEIPT_OCR_EFFORT)
+        # Capped: a failed cheap read is followed by the photo model, so it must stay cheap
+        return await self._read(content, SYSTEM_PROMPT + OCR_NOTES, model, api_key, settings.RECEIPT_OCR_EFFORT,
+                                max_tokens=settings.RECEIPT_OCR_MAX_TOKENS)
 
-    async def _read(self, content: list[dict], system: str, model: str, api_key: str, effort: str) -> ExtractionResult:
+    async def _read(self, content: list[dict], system: str, model: str, api_key: str, effort: str,
+                    max_tokens: int = 16000) -> ExtractionResult:
         client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         kwargs: dict = {}
-        if not model.startswith(_NO_THINKING_PREFIXES):
+        if effort == "none" and not model.startswith(_NO_THINKING_PREFIXES):
+            # Sonnet 5 / Opus 5 accept this; Opus 5.5 and Fable reject it (use an effort level there)
+            kwargs["thinking"] = {"type": "disabled"}
+        elif not model.startswith(_NO_THINKING_PREFIXES):
             kwargs["thinking"] = {"type": "adaptive"}
             kwargs["output_config"] = {"effort": effort}
         if model in _FALLBACK_MODELS:
@@ -64,7 +70,7 @@ class ClaudeExtractor(ReceiptExtractor):
         try:
             response = await client.beta.messages.parse(
                 model=model,
-                max_tokens=16000,
+                max_tokens=max_tokens,
                 system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": content}],
                 output_format=ReceiptExtraction,
