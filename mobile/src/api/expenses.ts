@@ -174,6 +174,14 @@ export interface ScanStep {
   label: string;
 }
 
+/** One piece of a person's share on a receipt: their part of an item (index into items, after
+ * discounts), of an adjustment they were given (index into adjustments), or a cent of rounding. */
+export interface SharePart {
+  type: 'item' | 'adjustment' | 'rounding';
+  id: number | null;
+  amount: number;
+}
+
 export interface Receipt {
   id: string;
   conversation_id: string;
@@ -202,7 +210,7 @@ export interface Receipt {
     outside_receipt_minor: number;
     unassigned_minor: number;
     unassigned_item_indexes: number[];
-    people: { user_id: string; amount_minor: number }[];
+    people: { user_id: string; amount_minor: number; breakdown: SharePart[] }[];
   } | null;
   calc_error: string | null;
   expense_id: string | null;
