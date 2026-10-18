@@ -4,6 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import { Loading } from '../components/atoms';
 import { E2EGate } from './E2EGate';
+import { TabGate } from './TabGate';
 
 interface RequireAuthProps {
   children: React.ReactNode;
@@ -27,6 +28,6 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Render protected content once this browser has the account's encryption keys
-  return <E2EGate>{children}</E2EGate>;
+  // Render protected content in the active tab, once this browser has the account's encryption keys
+  return <TabGate><E2EGate>{children}</E2EGate></TabGate>;
 };

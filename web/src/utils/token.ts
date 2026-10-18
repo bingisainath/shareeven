@@ -2,6 +2,8 @@ import { JwtPayload } from "../types/auth.types";
 
 const STORAGE_KEY =
   process.env.REACT_APP_TOKEN_STORAGE_KEY || "papyris_access_token";
+/** The access token's localStorage key (other tabs watch it to follow sign-in and logout). */
+export const TOKEN_STORAGE_KEY = STORAGE_KEY;
 
 const REFRESH_STORAGE_KEY = `${STORAGE_KEY}_refresh`;
 

@@ -34,11 +34,15 @@ export const ALLOWED: Record<string, 'image' | 'video' | 'audio' | 'file'> = {
   'application/pdf': 'file', 'application/msword': 'file',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'file',
 };
-export const maxSize = (kind: string) => (kind === 'video' ? 50 * MB : 10 * MB);
+export const maxSize = (kind: string) => (kind === 'video' ? 50 * MB : kind === 'file' ? 150 * MB : 10 * MB);
+
+/** What an upload counts as. As a document, any type goes (an APK, a zip…): it's sent as a plain file. */
+export const kindOf = (type: string, anyFile = false): 'image' | 'video' | 'audio' | 'file' | undefined =>
+  ALLOWED[type] || (anyFile ? 'file' : undefined);
 
 /** Why this file can't be sent, or null. */
-export function fileProblem(type: string, size?: number | null): string | null {
-  const kind = ALLOWED[type];
+export function fileProblem(type: string, size?: number | null, anyFile = false): string | null {
+  const kind = kindOf(type, anyFile);
   if (!kind) return 'This file type is not supported';
   if (size && size > maxSize(kind)) return `Too large (max ${maxSize(kind) / MB} MB)`;
   return null;

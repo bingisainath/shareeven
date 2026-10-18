@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     ]
     
     # Media uploads (stored on local disk, served by /api/v1/media)
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB - images and documents
+    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB - images
+    MAX_FILE_UPLOAD_SIZE: int = 150 * 1024 * 1024  # 150MB - documents and other files (e.g. an APK)
     MAX_VIDEO_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     UPLOAD_DIR: str = "uploads"  # relative paths resolve against the backend/ directory
     # Encrypts uploaded files on disk: 32 random bytes, base64. Generate with

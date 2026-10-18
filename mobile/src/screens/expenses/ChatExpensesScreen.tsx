@@ -5,7 +5,7 @@
 //   Summary   total spent, by category, by member and by month
 //   History   expenses and payments together, filtered by date, category, member or type
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowRightLeft, BellRing, CheckCircle2, ChevronDown, Download, Lock, PenLine, Plus, ScrollText, Wallet } from 'lucide-react-native';
@@ -61,6 +61,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
   const [version, setVersion] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [settle, setSettle] = useState<Settle | null>(null);
+  const [choosing, setChoosing] = useState(false); // "Settle up" with several people: pick one first
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
@@ -118,10 +119,26 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
     if (!settle) return;
     const minor = parseMajor(settle.amount, settle.currency);
     if (!minor || minor <= 0) { showAlert('Enter the amount paid'); return; }
+    // More than is owed flips the balance the other way: make sure that's meant
+    const owed = balances?.currencies.find((c) => c.currency === settle.currency)?.debts
+      .find((d) => d.from_user === settle.from && d.to_user === settle.to)?.amount_minor || 0;
+    if (!settle.editing && minor > owed) {
+      const sure = await new Promise<boolean>((resolve) => showAlert(
+        'More than is owed',
+        owed
+          ? `${settle.from === me.id ? 'You owe' : `${name(settle.from)} owes`} ${formatMinor(owed, settle.currency)}. Recording ${formatMinor(minor, settle.currency)} means ${settle.to === me.id ? 'you' : name(settle.to)} will owe the difference back.`
+          : `${settle.from === me.id ? 'You don’t' : `${name(settle.from)} doesn’t`} owe ${settle.to === me.id ? 'you' : name(settle.to)} anything in ${settle.currency}. Record it anyway?`,
+        [{ text: 'Cancel', style: 'cancel', onPress: () => resolve(false) }, { text: 'Record anyway', onPress: () => resolve(true) }],
+        { cancelable: false },
+      ));
+      if (!sure) return;
+    }
     setSaving(true);
     try {
-      if (settle.editing) await expenseService.updateSettlement(settle.editing, { amount: settle.amount, note: settle.note });
-      else await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount: settle.amount });
+      // Send "12.30" whatever the keyboard typed ("12,30")
+      const amount = toMajorString(minor, settle.currency);
+      if (settle.editing) await expenseService.updateSettlement(settle.editing, { amount, note: settle.note });
+      else await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount });
       setSettle(null);
       load();
     } catch (e) {
@@ -134,7 +151,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
   if (!balances || !summary) return <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>;
   const props = { summary, balances, me: me.id, name, users, onSettle: setSettle, conversationId };
 
-  // "Settle up": straight to the payment when there's one; otherwise the You tab lists them
+  // "Settle up": straight to the payment when there's one; otherwise choose who with
   const myDebts = balances.currencies.flatMap((c) =>
     c.debts.filter((d) => d.from_user === me.id || d.to_user === me.id).map((d) => ({ ...d, currency: c.currency })));
   const settleUp = () => {
@@ -142,7 +159,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
       const d = myDebts[0];
       setSettle({ from: d.from_user, to: d.to_user, currency: d.currency, amount: toMajorString(d.amount_minor, d.currency) });
     } else {
-      setTab('you');
+      setChoosing(true);
     }
   };
 
@@ -174,7 +191,37 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
         </ScrollView>
       )}
 
+      <Modal visible={choosing} transparent animationType="fade" onRequestClose={() => setChoosing(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setChoosing(false)}>
+          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.sheetTitle}>Settle up with</Text>
+            <ScrollView style={styles.choices}>
+              {myDebts.map((d) => {
+                const iOwe = d.from_user === me.id;
+                const other = iOwe ? d.to_user : d.from_user;
+                return (
+                  <Pressable
+                    key={`${d.currency}-${d.from_user}-${d.to_user}`}
+                    onPress={() => {
+                      setChoosing(false);
+                      setSettle({ from: d.from_user, to: d.to_user, currency: d.currency, amount: toMajorString(d.amount_minor, d.currency) });
+                    }}
+                    style={({ pressed }) => [styles.row, styles.choice, pressed && { backgroundColor: colors.muted100 }]}
+                    accessibilityRole="button"
+                  >
+                    <Avatar uri={users[other]?.avatar} name={users[other]?.name || users[other]?.username || 'Someone'} size={32} />
+                    <Text style={styles.rowText} numberOfLines={2}>{iOwe ? `You owe ${name(other)}` : `${name(other)} owes you`}</Text>
+                    <Text style={[styles.rowAmount, { color: iOwe ? colors.danger600 : colors.success700 }]}>{formatMinor(d.amount_minor, d.currency)}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={!!settle} transparent animationType="fade" onRequestClose={() => setSettle(null)}>
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.backdrop} onPress={() => setSettle(null)}>
           {settle && (
             <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
@@ -189,6 +236,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
             </Pressable>
           )}
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -580,7 +628,7 @@ const HistoryTab: React.FC<{
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {RANGES.map((r) => <Chip key={r.value} text={r.label} on={range === r.value} onPress={() => setRange(r.value)} />)}
       </ScrollView>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chips, styles.chipsLast]}>
         <Chip text={category ? label(category) : 'Category'} on={!!category} menu onPress={() => setPicking('category')} />
         <Chip text={member ? name(member) : 'Member'} on={!!member} menu onPress={() => setPicking('member')} />
         <Chip text="Expenses" on={kind === 'expense'} onPress={() => setKind(kind === 'expense' ? '' : 'expense')} />
@@ -590,7 +638,7 @@ const HistoryTab: React.FC<{
 
       {!items ? <ActivityIndicator style={{ marginTop: space(8) }} color={colors.primary700} /> : items.length === 0 ? (
         <Text style={styles.empty}>{filtered ? 'Nothing matches these filters.' : 'No expenses or payments yet.'}</Text>
-      ) : items.map((it) => {
+      ) : <View style={styles.historyList}>{items.map((it) => {
         const when = new Date(it.at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
         if (it.kind === 'settlement') {
           return (
@@ -637,7 +685,7 @@ const HistoryTab: React.FC<{
             )}
           </Pressable>
         );
-      })}
+      })}</View>}
 
       {picking && (
         <Picker
@@ -735,6 +783,8 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', color: colors.muted500, marginTop: space(8), paddingHorizontal: space(6) },
   chips: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingTop: space(3) },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.full, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  chipsLast: { paddingBottom: space(4) },
+  historyList: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200 },
   chipOn: { borderColor: colors.primary600, backgroundColor: colors.primary50 },
   chipText: { fontSize: 13, color: colors.muted700 },
   chipTextOn: { color: colors.primary800, fontWeight: '600' },
@@ -744,6 +794,8 @@ const styles = StyleSheet.create({
   payIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.success50 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: space(5), paddingBottom: space(10), gap: space(3) },
+  choices: { maxHeight: 360, marginHorizontal: -space(2) },
+  choice: { paddingHorizontal: space(2), paddingVertical: space(2.5), borderRadius: radius.md },
   sheetTitle: { fontSize: 18, fontWeight: '700', color: colors.muted900 },
   sheetText: { fontSize: 14, color: colors.muted600 },
   amount: { height: 52, borderWidth: 1, borderColor: colors.muted300, borderRadius: radius.md, paddingHorizontal: space(3), fontSize: 20, fontWeight: '600', color: colors.muted900 },

@@ -81,18 +81,45 @@ export const useChat = create<ChatState>((set, get) => ({
         ? { ...c, unreadCount: 0 }
         : c,
     );
-    set({ conversations, loaded: true });
-    // Read on another device (or here) while this phone was away: their notifications go too
-    clearChatNotifications(conversations.filter((c) => !c.unreadCount).map((c) => c.id));
-    // v2 chats: the server only knows a message was sent; the preview comes from this phone's copy
-    conversations.filter((c) => isV2Marker(c.lastMessage)).forEach((c) => {
-      set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: 'Encrypted message' } : x)) }));
-      lastLocal(c.id).then((m) => {
-        if (!m) return;
-        const preview = previewOf({ ...fromLocal(m) } as Message);
-        set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: preview } : x)) }));
-      }).catch(() => undefined);
+    // v2 chats: the server only knows a message was sent; the preview comes from this phone's
+    // copy. Look those up before showing the list, so a refresh never flashes the raw envelope.
+    // (The keys may still be starting up: don't hold the list for long, fill those rows in later.)
+    const shown = Object.fromEntries(get().conversations.map((c) => [c.id, c]));
+    const late: { id: string; lookup: Promise<LocalMessage | null> }[] = [];
+    let joined: Promise<number | null> | null = null;
+    const joinedOnce = () => (joined ??= joinedAt().catch(() => null));
+    const previews = await Promise.all(conversations.map(async (c) => {
+      if (!isV2Marker(c.lastMessage)) return c.lastMessage;
+      const lookup = lastLocal(c.id).catch(() => null);
+      const m = await Promise.race([lookup, new Promise<'slow'>((resolve) => setTimeout(() => resolve('slow'), 800))]);
+      if (m && m !== 'slow') return previewOf({ ...fromLocal(m) } as Message);
+      if (m === 'slow') late.push({ id: c.id, lookup });
+      // Sent before this phone was linked (both from the server's clock): it was never encrypted for it
+      const since = m === null ? await joinedOnce() : null;
+      if (since && c.lastMessageTime && Date.parse(c.lastMessageTime) < since) return 'Sent before this phone was linked';
+      // Not on this phone (yet): keep what the row already says about the same message
+      const before = shown[c.id];
+      return before && before.lastMessageTime === c.lastMessageTime && !isV2Marker(before.lastMessage)
+        ? before.lastMessage
+        : 'Encrypted message';
+    }));
+    // A message that arrived over the socket meanwhile is newer than this list: keep it
+    const now = Object.fromEntries(get().conversations.map((c) => [c.id, c]));
+    const withPreviews = conversations.map((c, n) => {
+      const live = now[c.id];
+      if (live?.lastMessageTime && (!c.lastMessageTime || new Date(live.lastMessageTime) > new Date(c.lastMessageTime))) {
+        return { ...c, lastMessage: live.lastMessage, lastMessageTime: live.lastMessageTime };
+      }
+      return previews[n] === c.lastMessage ? c : { ...c, lastMessage: previews[n] };
     });
+    set({ conversations: withPreviews, loaded: true });
+    late.forEach(({ id, lookup }) => lookup.then((m) => {
+      if (!m) return;
+      const preview = previewOf({ ...fromLocal(m) } as Message);
+      set((s) => ({ conversations: s.conversations.map((x) => (x.id === id ? { ...x, lastMessage: preview } : x)) }));
+    }));
+    // Read on another device (or here) while this phone was away: their notifications go too
+    clearChatNotifications(withPreviews.filter((c) => !c.unreadCount).map((c) => c.id));
   },
 
   loadMessages: async (conversationId) => {

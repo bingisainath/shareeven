@@ -52,15 +52,14 @@ async def upload_media(
         max_size = plain_max + 16 + 16 * (plain_max // (64 * 1024) + 1)
         head = await file.read(16)
     else:
-        mime = (file.content_type or "").split(";")[0].strip().lower()
-        if mime not in media_storage.ALLOWED_TYPES:
-            raise HTTPException(status_code=415, detail=f"Unsupported file type: {mime or 'unknown'}")
-
-        media_type, extension = media_storage.ALLOWED_TYPES[mime]
+        mime = media_storage.clean_mime((file.content_type or "").split(";")[0].strip().lower())
+        media_type, extension = media_storage.file_type_for(mime)
         max_size = media_storage.max_size_for(media_type)
 
         head = await file.read(16)
-        if not media_storage.content_matches(mime, head):
+        # Photos, videos and the listed documents must be what they say (they're shown or opened
+        # in place); anything else is only ever downloaded, so it isn't checked
+        if mime in media_storage.ALLOWED_TYPES and not media_storage.content_matches(mime, head):
             raise HTTPException(status_code=415, detail="File content does not match its type")
 
     key = media_storage.new_key(extension)

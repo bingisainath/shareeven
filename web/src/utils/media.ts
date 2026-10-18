@@ -3,13 +3,13 @@ import type React from 'react';
 import { API_BASE_URL } from '../config/env';
 import type { MediaType } from '../services/websocket.service';
 
-// Keep in sync with backend MAX_UPLOAD_SIZE / MAX_VIDEO_UPLOAD_SIZE
+// Keep in sync with backend MAX_UPLOAD_SIZE / MAX_VIDEO_UPLOAD_SIZE / MAX_FILE_UPLOAD_SIZE
 const MB = 1024 * 1024;
 export const MAX_SIZE: Record<MediaType, number> = {
   image: 10 * MB,
   video: 50 * MB,
   audio: 10 * MB,
-  file: 10 * MB,
+  file: 150 * MB,
 };
 
 export const ACCEPTED_FILE_TYPES = [
@@ -20,16 +20,23 @@ export const ACCEPTED_FILE_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ].join(',');
 
+const LISTED = ACCEPTED_FILE_TYPES.split(',');
+
+/** Photos, videos and audio of the listed types are shown in the chat; anything else is a file. */
 export const mediaTypeOf = (file: File): MediaType => {
+  if (!LISTED.includes(file.type)) return 'file';
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
   return 'file';
 };
 
-/** Returns an error message if the file can't be sent, otherwise null. */
-export const validateFile = (file: File): string | null => {
-  if (!ACCEPTED_FILE_TYPES.split(',').includes(file.type)) {
+/**
+ * Returns an error message if the file can't be sent, otherwise null.
+ * `anyFile`: sent as a document, so any type goes (an APK, a zip…) as a plain file.
+ */
+export const validateFile = (file: File, anyFile = false): string | null => {
+  if (!anyFile && !LISTED.includes(file.type)) {
     return 'This file type is not supported.';
   }
   const type = mediaTypeOf(file);

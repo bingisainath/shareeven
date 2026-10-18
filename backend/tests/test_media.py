@@ -54,13 +54,35 @@ async def test_upload_requires_login(client):
     assert r.status_code in (401, 403)
 
 
-@pytest.mark.parametrize("content,mime,status", [
-    (png_bytes(), "video/mp4", 415),       # content doesn't match declared type
-    (b"<html></html>", "text/html", 415),  # type not allowed
-])
-async def test_upload_rejects_bad_files(client, make_user, content, mime, status):
+async def test_upload_rejects_mismatched_content(client, make_user):
     user = await make_user()
-    assert (await upload(client, user, content, mime)).status_code == status
+    assert (await upload(client, user, png_bytes(), "video/mp4")).status_code == 415
+
+
+@pytest.mark.parametrize("content,mime,name", [
+    (b"PK\x03\x04apk-ish", "application/vnd.android.package-archive", "ShareEven.apk"),
+    (b"<html><script>alert(1)</script></html>", "text/html", "page.html"),  # only ever a download
+])
+async def test_other_files_are_kept_as_downloads(client, make_user, content, mime, name):
+    user = await make_user()
+    r = await upload(client, user, content, mime, name)
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["mediaType"] == "file" and data["filename"] == name and data["mimeType"] == mime
+    assert data["url"].endswith(media_storage.OTHER_FILE_EXTENSION)
+    served = await client.get(data["signedUrl"])
+    assert served.content == content
+    assert served.headers["content-type"] == "application/octet-stream"
+    assert served.headers["content-disposition"].startswith("attachment")
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_files_get_the_larger_limit(client, make_user, monkeypatch):
+    user = await make_user()
+    monkeypatch.setattr(settings, "MAX_UPLOAD_SIZE", 100)  # photos
+    monkeypatch.setattr(settings, "MAX_FILE_UPLOAD_SIZE", 1000)
+    assert (await upload(client, user, b"x" * 500, "application/zip", "a.zip")).status_code == 200
+    assert (await upload(client, user, b"x" * 1500, "application/zip", "a.zip")).status_code == 413
 
 
 async def test_upload_size_limit(client, make_user, monkeypatch, upload_dir):

@@ -14,7 +14,7 @@ import { authService, loginUser, registerUser, getMe, updateMe, verifyEmailCode,
 import { AxiosError } from "axios";
 import type { ProfileUpdate } from "../services/auth.service";
 import { User } from "../types/auth.types";
-import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
+import { decodeJwt, isTokenExpired, TOKEN_STORAGE_KEY, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
 import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
@@ -23,6 +23,7 @@ import { chatDrafts } from "../utils/drafts";
 import { clearNotices } from '../hooks/useNotices';
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
+import { whenActiveTab } from "../utils/activeTab";
 import type { AppDispatch } from "../redux/store";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
@@ -77,6 +78,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user]);
 
+  // Only the active tab keeps the live connection (see utils/activeTab); others wait for "Use here"
+  const connectWhenActive = useCallback((token: string) => {
+    whenActiveTab().then(() => {
+      if (tokenStore.get()) dispatch(connectWebSocket(tokenStore.get() || token)); // still signed in
+    });
+  }, [dispatch]);
+
   const logout = useCallback(async () => {
     // ✅ ADD: Disconnect WebSocket before logout
     dispatch(disconnectWebSocket());
@@ -91,6 +99,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setError(null);
   }, [dispatch]);
 
+
+  // Tabs share one sign-in (localStorage). Logging out in another tab ends this one too, and a
+  // different account signing in there reloads this tab, so it never shows the old account's data.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage || (e.key !== null && e.key !== TOKEN_STORAGE_KEY)) return;
+      const token = tokenStore.get();
+      if (!token) {
+        if (!user) return;
+        // The other tab already told the server and wiped this browser's keys: just stop here
+        dispatch(disconnectWebSocket());
+        stopV2(false).catch(() => undefined);
+        e2eSession.clear();
+        clearNotices();
+        setUser(null);
+        toast.info("You logged out in another tab.");
+        return;
+      }
+      // (A tab still restoring its own session picks the new sign-in up by itself)
+      const sub = decodeJwt(token)?.sub;
+      if (sub && (user ? sub !== user.id : !isLoading)) window.location.reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [user, isLoading, dispatch]);
 
   // Renew the access token shortly before it expires, for as long as we're logged in
   useEffect(() => {
@@ -164,7 +197,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(res.data);
 
-        dispatch(connectWebSocket(token));
+        connectWhenActive(token);
 
       } catch (err) {
         console.error("[AUTH] Session restore failed:", err);
@@ -175,7 +208,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     init();
-  }, [logout, dispatch]);
+  }, [logout, connectWhenActive]);
 
   // Store the tokens, load the profile and open the live connection
   const finishSignIn = useCallback(
@@ -188,9 +221,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       setUser(meRes.data);
       setError(null);
-      dispatch(connectWebSocket(tokens.access_token));
+      connectWhenActive(tokens.access_token);
     },
-    [dispatch]
+    [connectWhenActive]
   );
 
   /** Check the emailed 6-digit code; signs the person in on success. */

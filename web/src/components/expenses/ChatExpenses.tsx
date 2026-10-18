@@ -58,6 +58,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
   const [balances, setBalances] = useState<Balances | null>(null);
   const [summary, setSummary] = useState<ExpenseSummary | null>(null);
   const [settle, setSettle] = useState<SettleDraft | null>(null);
+  const [choosing, setChoosing] = useState(false); // "Settle up" with several people: pick one first
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [version, setVersion] = useState(0); // bumps when anything changes, so History reloads too
@@ -102,6 +103,18 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
 
   const recordPayment = async () => {
     if (!settle) return;
+    const minor = parseMajor(settle.amount, settle.currency);
+    if (!minor || minor <= 0) { toast.error('Enter the amount paid'); return; }
+    // More than is owed flips the balance the other way: make sure that's meant
+    const owed = balances?.currencies.find((c) => c.currency === settle.currency)?.debts
+      .find((d) => d.from_user === settle.from && d.to_user === settle.to)?.amount_minor || 0;
+    if (!settle.editing && minor > owed && !(await confirmDialog({
+      title: 'More than is owed',
+      message: owed
+        ? `${settle.from === currentUserId ? 'You owe' : `${name(settle.from)} owes`} ${formatMinor(owed, settle.currency)}. Recording ${formatMinor(minor, settle.currency)} means ${settle.to === currentUserId ? 'you' : name(settle.to)} will owe the difference back.`
+        : `${settle.from === currentUserId ? 'You don’t' : `${name(settle.from)} doesn’t`} owe ${settle.to === currentUserId ? 'you' : name(settle.to)} anything in ${settle.currency}. Record it anyway?`,
+      confirmText: 'Record anyway',
+    }))) return;
     setSaving(true);
     try {
       if (settle.editing) {
@@ -128,7 +141,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
   const empty = !!summary && summary.currencies.length === 0;
   const otherIds = Object.keys(users).filter((id) => id !== currentUserId);
 
-  // "Settle up": straight to the payment when there's one; otherwise the You tab lists them
+  // "Settle up": straight to the payment when there's one; otherwise choose who with
   const myDebts = (balances?.currencies || []).flatMap((c) =>
     c.debts.filter((d) => d.from_user === currentUserId || d.to_user === currentUserId).map((d) => ({ ...d, currency: c.currency })));
   const settleUp = () => {
@@ -136,7 +149,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
       const d = myDebts[0];
       setSettle({ from: d.from_user, to: d.to_user, currency: d.currency, amount: toMajorString(d.amount_minor, d.currency) });
     } else {
-      setTab('you');
+      setChoosing(true);
     }
   };
 
@@ -229,6 +242,33 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
               onEditPayment={(it) => setSettle({ from: it.from_user, to: it.to_user, currency: it.currency, amount: toMajorString(it.amount_minor, it.currency), editing: it.id, note: it.note })} />
           )}
         </>
+      )}
+
+      {choosing && (
+        <Sheet title="Settle up with" eyebrow="Settle up" onClose={() => setChoosing(false)}>
+          <ul className="-mx-2">
+            {myDebts.map((d) => {
+              const iOwe = d.from_user === currentUserId;
+              const other = iOwe ? d.to_user : d.from_user;
+              return (
+                <li key={`${d.currency}-${d.from_user}-${d.to_user}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChoosing(false);
+                      setSettle({ from: d.from_user, to: d.to_user, currency: d.currency, amount: toMajorString(d.amount_minor, d.currency) });
+                    }}
+                    className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl text-left hover:bg-muted-50"
+                  >
+                    <Avatar src={users[other]?.avatar} alt={name(other)} size="sm" />
+                    <span className="flex-1 min-w-0 text-sm text-muted-700 truncate">{iOwe ? `You owe ${name(other)}` : `${name(other)} owes you`}</span>
+                    <Money minor={d.amount_minor} currency={d.currency} className={`text-sm font-semibold ${iOwe ? 'text-accent-600' : 'text-success-700'}`} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Sheet>
       )}
 
       {settle && (
@@ -714,8 +754,8 @@ const HistoryTab: React.FC<{
   const filtered = range !== 'all' || category || member || kind;
 
   return (
-    <div className="card p-4 sm:p-5 space-y-3">
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
+    <div className="card p-4 sm:p-5">
+      <div className="flex flex-wrap items-center gap-2 pb-4 mb-2 border-b border-muted-100" role="group" aria-label="Filters">
         <select value={range} onChange={(e) => setRange(e.target.value as DateRange)} aria-label="Date" className={select}>
           <option value="all">All time</option>
           <option value="month">This month</option>

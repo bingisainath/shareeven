@@ -7,7 +7,7 @@ import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-pick
 import { cameraAllowed } from '../../utils/camera';
 import { keepLocalCopy, pick, types } from '@react-native-documents/picker';
 import { Camera, FileText, Image as ImageIcon, Mic, Paperclip, Play, SendHorizontal, Trash2, X } from 'lucide-react-native';
-import { ALLOWED, fileProblem, UploadQuality } from '../../api/media';
+import { ALLOWED, fileProblem, kindOf, UploadQuality } from '../../api/media';
 import type { Attachment } from '../../store/chat';
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import { colors, radius, space } from '../../theme';
@@ -90,7 +90,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
   const pickDocuments = async () => {
     setMenu(false);
     try {
-      const files = await pick({ allowMultiSelection: true, type: [types.pdf, types.doc, types.docx, types.images] });
+      const files = await pick({ allowMultiSelection: true, type: [types.allFiles] });
       const copies = await keepLocalCopy({
         files: files.map((f) => ({ uri: f.uri, fileName: f.name || 'document' })) as [{ uri: string; fileName: string }],
         destination: 'cachesDirectory',
@@ -99,7 +99,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
       files.forEach((f, i) => {
         const copy = copies[i];
         const type = f.type || 'application/octet-stream';
-        const problem = fileProblem(type, f.size);
+        const problem = fileProblem(type, f.size, true);
         if (problem || copy?.status !== 'success') {
           showAlert(f.name || 'File', problem || "This file couldn't be read");
           return;
@@ -107,7 +107,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
         list.push({
           id: `a${++counter}`,
           file: { uri: copy.localUri, type, name: f.name || 'document' },
-          kind: ALLOWED[type], caption: '', quality: 'original' as UploadQuality, size: f.size || undefined,
+          kind: kindOf(type, true)!, caption: '', quality: 'original' as UploadQuality, size: f.size || undefined,
         });
       });
       add(list);
@@ -222,7 +222,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
           <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
             <MenuRow icon={Camera} title="Camera" hint="Take a photo or video" onPress={() => pickMedia('camera')} />
             <MenuRow icon={ImageIcon} title="Photos & videos" hint={`Up to ${MAX} at once`} onPress={() => pickMedia('library')} />
-            <MenuRow icon={FileText} title="Document" hint="PDF, Word or an image at full quality" onPress={pickDocuments} />
+            <MenuRow icon={FileText} title="Document" hint="Any file up to 150 MB, or an image at full quality" onPress={pickDocuments} />
             <View style={styles.hdRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuTitle}>HD quality</Text>

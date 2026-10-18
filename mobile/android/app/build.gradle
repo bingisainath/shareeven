@@ -72,6 +72,12 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/** The CPU types to build for (reactNativeArchitectures in gradle.properties, or -P on the command line). */
+def reactNativeArchitectures() {
+    def value = project.getProperties().get("reactNativeArchitectures")
+    return value ? value.split(",")*.trim() : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -82,9 +88,12 @@ android {
         applicationId "com.shareeven.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "0.9.7-beta"
+        versionCode 10
+        versionName "0.9.8-beta"
     }
+    // Release builds for Google Play are signed with the upload key. Its path and passwords live in
+    // ~/.gradle/gradle.properties (SHAREEVEN_UPLOAD_*), never in the repo.
+    def hasUploadKey = project.hasProperty('SHAREEVEN_UPLOAD_STORE_FILE')
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -92,15 +101,33 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasUploadKey) {
+            release {
+                storeFile file(SHAREEVEN_UPLOAD_STORE_FILE)
+                storePassword SHAREEVEN_UPLOAD_STORE_PASSWORD
+                keyAlias SHAREEVEN_UPLOAD_KEY_ALIAS
+                keyPassword SHAREEVEN_UPLOAD_KEY_PASSWORD
+            }
+        }
+    }
+    // One APK per CPU type instead of one with all four (~118 MB): app-arm64-v8a-release.apk is the
+    // one for almost every phone. Doesn't change Play bundles (bundleRelease), which Play splits itself.
+    splits {
+        abi {
+            reset()
+            enable true
+            universalApk false
+            include(*reactNativeArchitectures())
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Without the upload key (a machine that doesn't publish), release builds fall back to the
+            // debug key so they still build; Google Play refuses those, so nothing debug-signed ships.
+            signingConfig hasUploadKey ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

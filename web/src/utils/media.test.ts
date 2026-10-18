@@ -20,6 +20,12 @@ describe('validateFile', () => {
     expect(validateFile(sized('image/png', 11 * 1024 * 1024))).toMatch(/too large/);
     expect(validateFile(sized('video/mp4', 51 * 1024 * 1024))).toMatch(/max 50MB/);
   });
+
+  it('takes any file as a document, up to 150MB', () => {
+    expect(validateFile(sized('application/vnd.android.package-archive', 120 * 1024 * 1024), true)).toBeNull();
+    expect(validateFile(sized('', 1024), true)).toBeNull();
+    expect(validateFile(sized('application/zip', 151 * 1024 * 1024), true)).toMatch(/max 150MB/);
+  });
 });
 
 describe('mediaBoxStyle', () => {

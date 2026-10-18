@@ -47,6 +47,21 @@ ALLOWED_TYPES: dict[str, tuple[str, str]] = {
 EXTENSION_MIME = {ext: mime for mime, (_, ext) in ALLOWED_TYPES.items()}
 # (".enc" end-to-end encrypted uploads are served as application/octet-stream)
 
+# Any other type is kept as a plain file (an APK, a zip, a spreadsheet...). It's stored as ".bin",
+# so it's always served as application/octet-stream and as a download, never shown in the browser.
+OTHER_FILE_EXTENSION = ".bin"
+_MIME_RE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$")
+
+
+def file_type_for(mime: str) -> tuple[str, str]:
+    """(media type, stored extension) for an upload's declared type: listed ones, else a plain file."""
+    return ALLOWED_TYPES.get(mime, ("file", OTHER_FILE_EXTENSION))
+
+
+def clean_mime(mime: str) -> str:
+    """The declared type when it looks like one (passed back to the app for saving), else octet-stream."""
+    return mime if _MIME_RE.match(mime) else "application/octet-stream"
+
 MEDIA_TYPES = {"image", "video", "audio", "file"}
 
 _KEY_RE = re.compile(r"^\d{4}/\d{2}/[0-9a-f]{32}\.[a-z0-9]{2,5}$")
@@ -63,7 +78,11 @@ MAX_BACKUP_SIZE = 500 * 1024 * 1024  # encrypted chat backups (end-to-end encryp
 def max_size_for(media_type: str) -> int:
     if media_type == "backup":
         return MAX_BACKUP_SIZE
-    return settings.MAX_VIDEO_UPLOAD_SIZE if media_type == "video" else settings.MAX_UPLOAD_SIZE
+    if media_type == "video":
+        return settings.MAX_VIDEO_UPLOAD_SIZE
+    if media_type == "file":
+        return settings.MAX_FILE_UPLOAD_SIZE
+    return settings.MAX_UPLOAD_SIZE
 
 
 def new_key(extension: str) -> str:

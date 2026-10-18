@@ -9,7 +9,7 @@ import { Check, FileText, Image as ImageIcon, Mic, Paperclip, Plus, ReceiptText,
 import Icon from '../../atoms/Icon';
 import EmojiPicker from '../EmojiPicker';
 import { useVoiceRecorder } from '../../../hooks/useVoiceRecorder';
-import { ACCEPTED_FILE_TYPES, formatDuration, formatFileSize, mediaTypeOf, validateFile } from '../../../utils/media';
+import { formatDuration, formatFileSize, mediaTypeOf, validateFile } from '../../../utils/media';
 import type { UploadQuality } from '../../../utils/media';
 
 const TOOL_BUTTON = 'p-2 rounded-lg text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-40';
@@ -240,7 +240,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (list.length > room) toast.info(`You can send up to ${MAX_ATTACHMENTS} at once`);
     const added: Draft[] = [];
     for (const file of picked) {
-      const error = validateFile(file);
+      const error = validateFile(file, asDocument);
       if (error) {
         toast.error(`${file.name}: ${error}`);
         continue;
@@ -295,7 +295,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   return (
     <div className={`relative ${className}`}>
       <input ref={mediaInputRef} type="file" accept={VISUAL_TYPES} multiple hidden onChange={(e) => { addFiles(e.target.files, false); e.target.value = ''; }} />
-      <input ref={documentInputRef} type="file" accept={ACCEPTED_FILE_TYPES} multiple hidden onChange={(e) => { addFiles(e.target.files, true); e.target.value = ''; }} />
+      <input ref={documentInputRef} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files, true); e.target.value = ''; }} />
 
       {/* Reply / edit banner */}
       {(isEditing || replyingTo) && (
@@ -402,7 +402,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
                   </button>
                   <button type="button" role="menuitem" onClick={() => documentInputRef.current?.click()} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-muted-50">
                     <FileText className="w-5 h-5 text-primary-700" strokeWidth={1.75} />
-                    <span><span className="block text-muted-900">Document</span><span className="block text-xs text-muted-500">Original quality, as a file</span></span>
+                    <span><span className="block text-muted-900">Document</span><span className="block text-xs text-muted-500">Any file up to 150 MB, as is</span></span>
                   </button>
                 </div>
               )}
