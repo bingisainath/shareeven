@@ -16,6 +16,7 @@ import { e2eService } from '../services/e2e.service';
 import {
   answerRetry, answerWaitingRetries, askAgain, confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, joinedAt, lastLocal,
   localFor, myDeviceId, pendingFields, pointerOf, receiveLive, resendAfterDevicesChanged, sendMediaV2, sendTextV2, v2For,
+  warmChat,
 } from '../crypto/v2-platform/chat';
 import type { ChatInfo, RetryRequest } from '../crypto/v2-platform/chat';
 import type { EnvelopeMeta, LocalMessage, Received } from '../crypto/v2';
@@ -96,6 +97,7 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   loadMessages: async (conversationId) => {
+    warmChat(chatInfo(conversationId)); // device lists ready before the first message
     const page = await chatApi.messages(conversationId);
     const messages = await resolveV2(page.messages);
     const { hasMore } = page;

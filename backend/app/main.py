@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -25,7 +26,36 @@ def production_problems(s=settings) -> list[str]:
         problems.append("JWT_SECRET_KEY is the default or too short")
     if not s.MEDIA_ENCRYPTION_KEY:
         problems.append("MEDIA_ENCRYPTION_KEY is empty (uploads would depend on JWT_SECRET_KEY)")
+    if getattr(s, "RECEIPT_OCR_DEBUG_DIR", ""):
+        problems.append("RECEIPT_OCR_DEBUG_DIR is set (it writes what receipts say to disk unencrypted)")
+    if _password(getattr(s, "DATABASE_URL", "")) in DEV_PASSWORDS:
+        problems.append("DATABASE_URL uses a development password")
     return problems
+
+
+DEV_PASSWORDS = {"papyris", "password", "postgres"}
+
+
+def _password(url: str) -> str | None:
+    """The password in postgresql+asyncpg://user:password@host/db, or None."""
+    from urllib.parse import urlsplit
+    try:
+        return urlsplit(url).password
+    except ValueError:
+        return None
+
+
+def production_warnings(s=settings) -> list[str]:
+    """Worth fixing before real users, but not a reason to stay down."""
+    if s.ENV != "production":
+        return []
+    warnings = []
+    redis = getattr(s, "REDIS_URL", "")
+    if redis and "@" not in redis and not redis.startswith(("redis://localhost", "redis://127.0.0.1")):
+        warnings.append("REDIS_URL has no password")
+    if any("localhost" in o or "127.0.0.1" in o for o in getattr(s, "CORS_ORIGINS", [])):
+        warnings.append("CORS_ORIGINS still allows localhost")
+    return warnings
 
 
 def docs_urls(s=settings) -> dict:
@@ -37,6 +67,8 @@ def docs_urls(s=settings) -> dict:
 
 if production_problems():
     raise RuntimeError("Refusing to start in production: " + "; ".join(production_problems()))
+for _warning in production_warnings():
+    logging.getLogger(__name__).warning("Production setting to fix: %s", _warning)
 
 app = FastAPI(title=settings.APP_NAME, **docs_urls())
 

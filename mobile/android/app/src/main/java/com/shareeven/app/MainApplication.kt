@@ -20,6 +20,7 @@ class MainApplication : Application(), ReactApplication {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
           add(NotificationsPackage()) // clears read chats from the notification shade
+          add(SharePackage()) // "Share to ShareEven" from other apps
         },
     )
   }

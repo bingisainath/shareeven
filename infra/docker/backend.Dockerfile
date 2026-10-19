@@ -21,5 +21,9 @@ RUN pip install --upgrade pip \
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
+COPY scripts ./scripts
+
+# Receipt OCR models (~30 MB) baked into the image, so the first scan doesn't download them
+RUN python scripts/ocr_receipt.py --download
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

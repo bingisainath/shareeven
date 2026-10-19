@@ -11,6 +11,7 @@ import type { AppStackParams } from './src/navigation/types';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { DialogHost } from './src/components/common/Dialog';
+import IncomingShare from './src/share/IncomingShare';
 import { useAuth } from './src/store/auth';
 import { colors } from './src/theme';
 
@@ -43,6 +44,8 @@ export default function App() {
         <NavigationContainer ref={navigationRef} theme={theme}>
           <RootNavigator />
         </NavigationContainer>
+        {/* "Share to ShareEven" from the gallery and other apps */}
+        <IncomingShare openChat={(conversationId) => (navigationRef.isReady() ? navigationRef.navigate('Chat', { conversationId }) : undefined)} />
       </View>
       <DialogHost />
     </SafeAreaProvider>

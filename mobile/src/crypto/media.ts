@@ -245,7 +245,10 @@ export async function rememberDecrypted(url: string, key: string, localUri: stri
   const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
   await ensureDir();
   const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
-  await fs.cp(plainPath(localUri), target).catch(() => undefined);
+  await fs.cp(plainPath(localUri), target).catch((e) => {
+    // Not fatal: the file is downloaded and decrypted instead. Logged to find "Couldn't decrypt" reports.
+    console.warn(`[media] couldn't keep a local copy of ${localUri}:`, e?.message || e);
+  });
 }
 
 /**
@@ -261,7 +264,10 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
     let alive = true;
     decryptedFile(url, key, mime, v2)
       .then((src) => alive && setState({ src, failed: false, for: id }))
-      .catch(() => alive && setState({ failed: true, for: id }));
+      .catch((e) => {
+        console.warn(`[media] couldn't show ${url.split('?')[0]} (${mime || 'no type'}, ${v2 ? 'v2' : 'v1'}):`, e?.message || e);
+        if (alive) setState({ failed: true, for: id });
+      });
     return () => {
       alive = false;
     };
