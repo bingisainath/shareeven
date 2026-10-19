@@ -12,6 +12,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { DialogHost } from './src/components/common/Dialog';
 import IncomingShare from './src/share/IncomingShare';
+import ErrorBoundary from './src/components/common/ErrorBoundary';
+import { pruneCaches } from './src/crypto/media';
 import { useAuth } from './src/store/auth';
 import { colors } from './src/theme';
 
@@ -26,6 +28,7 @@ export default function App() {
   const restore = useAuth((s) => s.restore);
   const status = useAuth((s) => s.status);
   useEffect(() => { restore(); }, [restore]);
+  useEffect(() => { pruneCaches().catch(() => undefined); }, []); // old decrypted media and shared-in copies
 
   // Tapping a notification opens that chat (or Notices) (once signed in and navigation is ready)
   useEffect(() => {
@@ -41,9 +44,11 @@ export default function App() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       {/* Records the app's height so screens can place the keyboard (src/hooks/useKeyboardOffset.ts) */}
       <View style={{ flex: 1 }} onLayout={(e) => recordRootHeight(e.nativeEvent.layout.height)}>
-        <NavigationContainer ref={navigationRef} theme={theme}>
-          <RootNavigator />
-        </NavigationContainer>
+        <ErrorBoundary>
+          <NavigationContainer ref={navigationRef} theme={theme}>
+            <RootNavigator />
+          </NavigationContainer>
+        </ErrorBoundary>
         {/* "Share to ShareEven" from the gallery and other apps */}
         <IncomingShare openChat={(conversationId) => (navigationRef.isReady() ? navigationRef.navigate('Chat', { conversationId }) : undefined)} />
       </View>

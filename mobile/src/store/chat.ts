@@ -98,11 +98,14 @@ export const useChat = create<ChatState>((set, get) => ({
       // Sent before this phone was linked (both from the server's clock): it was never encrypted for it
       const since = m === null ? await joinedOnce() : null;
       if (since && c.lastMessageTime && Date.parse(c.lastMessageTime) < since) return 'Sent before this phone was linked';
-      // Not on this phone (yet): keep what the row already says about the same message
+      // Not looked up yet, or not on this phone: keep what the row already shows if it's readable
+      // (the same message, or a newer one from the socket; times compared as dates, the server and
+      // the socket write them differently). Still looking: the row fills in when the lookup ends.
       const before = shown[c.id];
-      return before && before.lastMessageTime === c.lastMessageTime && !isV2Marker(before.lastMessage)
-        ? before.lastMessage
-        : 'Encrypted message';
+      const readable = before && before.lastMessage && !isV2Marker(before.lastMessage) && before.lastMessage !== 'Encrypted message';
+      const sameOrNewer = !!before?.lastMessageTime && !!c.lastMessageTime && Date.parse(before.lastMessageTime) >= Date.parse(c.lastMessageTime);
+      if (readable && (m === 'slow' || sameOrNewer)) return before.lastMessage;
+      return m === 'slow' ? '' : 'Encrypted message';
     }));
     // A message that arrived over the socket meanwhile is newer than this list: keep it
     const now = Object.fromEntries(get().conversations.map((c) => [c.id, c]));
@@ -115,9 +118,12 @@ export const useChat = create<ChatState>((set, get) => ({
     });
     set({ conversations: withPreviews, loaded: true });
     late.forEach(({ id, lookup }) => lookup.then((m) => {
-      if (!m) return;
-      const preview = previewOf({ ...fromLocal(m) } as Message);
-      set((s) => ({ conversations: s.conversations.map((x) => (x.id === id ? { ...x, lastMessage: preview } : x)) }));
+      // Found: its text. Not on this phone: say so, but only where the row is still waiting (empty)
+      const preview = m ? previewOf({ ...fromLocal(m) } as Message) : null;
+      set((s) => ({
+        conversations: s.conversations.map((x) => (x.id !== id ? x : preview !== null ? { ...x, lastMessage: preview }
+          : x.lastMessage === '' ? { ...x, lastMessage: 'Encrypted message' } : x)),
+      }));
     }));
     // Read on another device (or here) while this phone was away: their notifications go too
     clearChatNotifications(withPreviews.filter((c) => !c.unreadCount).map((c) => c.id));

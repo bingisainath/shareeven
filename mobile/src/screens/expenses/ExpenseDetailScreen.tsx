@@ -1,5 +1,6 @@
 // src/screens/expenses/ExpenseDetailScreen.tsx
 import React, { useCallback, useEffect, useState } from 'react';
+import { firstCharacter } from '../../utils/initials';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
@@ -56,7 +57,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const initials = (id: string) => {
     if (id === me.id) return 'You';
     const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
-    return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?').slice(0, 1)).toUpperCase();
+    return (words.length > 1 ? firstCharacter(words[0]) + firstCharacter(words[1]) : firstCharacter(words[0] || '?')).toUpperCase();
   };
 
   // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.

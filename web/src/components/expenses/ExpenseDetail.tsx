@@ -2,6 +2,7 @@
 // One expense: who paid, who owes, the receipt photos, and the full history of changes.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { firstCharacter } from '../../utils/initials';
 import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import CategoryIcon from './CategoryIcon';
@@ -59,7 +60,7 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
   const initials = (id: string) => {
     if (id === currentUserId) return 'You';
     const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
-    return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?').slice(0, 1)).toUpperCase();
+    return (words.length > 1 ? firstCharacter(words[0]) + firstCharacter(words[1]) : firstCharacter(words[0] || '?')).toUpperCase();
   };
 
   // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.
