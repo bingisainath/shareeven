@@ -46,7 +46,8 @@ class AuthService:
 
     @staticmethod
     async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
-        result = await db.execute(select(User).where(User.username == username))
+        # Usernames are stored lowercase (schemas/user.py clean_username): "Alice" signs in as alice
+        result = await db.execute(select(User).where(User.username == username.strip().lower()))
         return result.scalar_one_or_none()
     
     @staticmethod

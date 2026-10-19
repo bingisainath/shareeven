@@ -57,6 +57,19 @@ def _table(ws, row: int, headers: list[str]) -> int:
     return row + 1
 
 
+def _no_formulas(wb) -> None:
+    """
+    People type store and item names; openpyxl stores any text starting with "=" as a formula, which
+    Excel would run when the file is opened (formula injection). The export writes no formulas of its
+    own, so every such cell is kept as plain text.
+    """
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f":
+                    cell.data_type = "s"
+
+
 def _widths(ws, widths: list[int]) -> None:
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
@@ -273,6 +286,7 @@ async def build_workbook(db: AsyncSession, conversation_id: uuid.UUID, title: st
             for cell in r:
                 cell.alignment = Alignment(vertical="top")
 
+    _no_formulas(wb)
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

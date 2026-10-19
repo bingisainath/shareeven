@@ -127,3 +127,10 @@ async def test_delete_account(client, db, make_user, events):
     assert (await client.get("/api/v1/auth/me", headers=target.headers)).status_code == 401
     log = (await client.get("/api/v1/admin/actions", headers=admin.headers)).json()["data"]
     assert log[0]["action"] == "delete_account" and log[0]["details"]["username"] == target.username
+
+
+async def test_search_wildcards_match_only_themselves(client, db, make_user):
+    admin = await _admin(db, make_user)
+    for q in ("%", "_"):
+        r = (await client.get(f"/api/v1/admin/users?q={q.replace('%', '%25')}", headers=admin.headers)).json()["data"]
+        assert all(q in (u["username"] + (u.get("name") or "") + u.get("email", "")) for u in r["users"]), q
