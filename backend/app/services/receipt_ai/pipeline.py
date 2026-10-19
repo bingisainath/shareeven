@@ -249,7 +249,13 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         "unsure_rows": sum(p.unsure_rows for p in pages),
     }}
     # Every photo must be clear; rows count across photos (a second photo may hold just the total)
-    if any(p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE for p in pages) or sum(p.rows for p in pages) < 5:
+    unclear = [n for n, p in enumerate(pages, 1) if p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE]
+    no_text = sum(p.rows for p in pages) < 5
+    if unclear or no_text:
+        if settings.RECEIPT_OCR_RETAKE_UNCLEAR:
+            # The person can fix this in seconds with a new photo; no model can read what isn't sharp
+            logger.info("Receipt %s: photo not clear enough (%s), asking for a new one", receipt.id, notes["ocr"])
+            raise ExtractionError(retake_message(unclear, len(pages), no_text))
         logger.info("Receipt %s: OCR not clear enough (%s), reading the photos instead", receipt.id, notes["ocr"])
         notes["ocr"]["rejected"] = {"reason": "photo too unclear for OCR"}
         return pages, None, notes
@@ -264,6 +270,19 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         notes["ocr"]["rejected"] = {"reason": f"text model failed: {str(e)[:200]}"}
         return pages, None, notes
     return pages, result, notes
+
+
+RETAKE_TIPS = "Take a new one: hold still, in good light, with the receipt flat and the whole width in the frame."
+
+
+def retake_message(unclear: list[int], photo_count: int, no_text: bool) -> str:
+    """What to tell someone whose photo the OCR couldn't read clearly (shown on the scan screen)."""
+    if no_text and not unclear:
+        return "Couldn't find a receipt in this photo. " + RETAKE_TIPS
+    if photo_count == 1:
+        return "This photo is too blurry or dark to read. " + RETAKE_TIPS
+    which = " and ".join(str(n) for n in unclear)
+    return f"Photo {which} {'is' if len(unclear) == 1 else 'are'} too blurry or dark to read. " + RETAKE_TIPS
 
 
 def _rejection(data: ReceiptExtraction) -> dict:

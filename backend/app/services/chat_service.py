@@ -12,14 +12,6 @@ from app.models.conversation_member import ConversationMember, MemberRole
 
 class ChatService:
     @staticmethod
-    async def search_users(db: AsyncSession, q: str, limit: int = 10) -> list[User]:
-        stmt = select(User).where(
-            or_(User.email.ilike(f"%{q}%"), User.username.ilike(f"%{q}%"))
-        ).limit(limit)
-        res = await db.execute(stmt)
-        return list(res.scalars().all())
-
-    @staticmethod
     async def create_dm(db: AsyncSession, current_user_id: uuid.UUID, other_user_id: uuid.UUID) -> Conversation:
         # Check if DM already exists
         stmt = (

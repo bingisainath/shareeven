@@ -114,8 +114,10 @@ async def list_users(
              .outerjoin(reports, reports.c.uid == User.id)
              .where(User.deleted_at.is_(None)))
     if q.strip():
-        like = f"%{q.strip().lstrip('@')}%"
-        query = query.where(or_(User.username.ilike(like), User.name.ilike(like), User.email.ilike(like)))
+        text = q.strip().lstrip('@').replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{text}%"  # % and _ typed in the box match themselves, not everything
+        query = query.where(or_(User.username.ilike(like, escape="\\"), User.name.ilike(like, escape="\\"),
+                                User.email.ilike(like, escape="\\")))
     if show == "suspended":
         query = query.where(User.suspended_at.is_not(None), or_(User.suspended_until.is_(None), User.suspended_until > func.now()))
     elif show == "reported":

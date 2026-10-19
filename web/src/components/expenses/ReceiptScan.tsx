@@ -156,13 +156,23 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
   }
 
   if (receipt && receipt.status === 'failed') {
+    // A new photo fixes most failed reads (blurry, dark, cut off); the failed scan doesn't count
+    const newPhoto = () => {
+      if (receipt.uploaded_by === currentUserId) expenseService.discardReceipt(receipt.id).catch(() => undefined);
+      currentId.current = undefined;
+      setReceipt(null);
+      setFiles([]);
+      setSteps([]);
+      setBusy('idle');
+    };
     return (
       <div className="py-10 text-center space-y-4">
         <p className="font-medium text-muted-900">Couldn’t read this receipt</p>
-        <p className="text-sm text-accent-600">{receipt.error}</p>
-        <div className="flex justify-center gap-2">
+        <p className="text-sm text-accent-600 max-w-sm mx-auto">{receipt.error}</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button type="button" onClick={newPhoto} className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium">Take a new photo</button>
           {receipt.uploaded_by === currentUserId && (
-            <button type="button" onClick={retry} className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium">Try again</button>
+            <button type="button" onClick={retry} className="px-4 py-2 rounded-lg bg-primary-50 text-primary-700 font-medium">Try the same photo again</button>
           )}
           <button type="button" onClick={onManual} className="px-4 py-2 rounded-lg bg-muted-100 font-medium">Enter it manually</button>
         </div>
@@ -218,9 +228,16 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
         hidden
         onChange={(e) => { pick(e.target.files); e.target.value = ''; }}
       />
-      <p className="text-xs text-muted-500">
-        Long receipt? Add up to {MAX_PHOTOS} photos, top to bottom. Flat, well lit and the whole width in view works best.
-      </p>
+      <div className="rounded-xl border border-primary-100 bg-primary-50/60 px-3.5 py-3 text-xs text-muted-700">
+        <p className="font-semibold text-primary-800">Take a clear photo</p>
+        <ul className="mt-1.5 space-y-1 list-disc pl-4">
+          <li>Sharp, not blurry: hold still and let the camera focus</li>
+          <li>Good light, no shadow or glare across the text</li>
+          <li>The receipt flat, the whole width in the frame</li>
+          <li>Long receipt? Up to {MAX_PHOTOS} photos, top to bottom</li>
+        </ul>
+        <p className="mt-1.5 text-muted-500">If a photo is too blurry to read, we’ll ask you for a new one.</p>
+      </div>
       <input
         value={note}
         onChange={(e) => setNote(e.target.value)}

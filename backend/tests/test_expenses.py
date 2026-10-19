@@ -366,3 +366,16 @@ async def test_exchange_rates_relative_to_base(client, make_user, monkeypatch):
         raise fx_rates.RatesUnavailable("down")
     monkeypatch.setattr(fx_rates, "usd_rates", broken)
     assert (await client.get("/api/v1/exchange-rates", params={"base": "EUR"}, headers=user.headers)).status_code == 503
+
+
+def test_export_never_writes_formulas():
+    from openpyxl import Workbook
+    from app.services.expense_export import _no_formulas
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = '=HYPERLINK("https://evil.example","Click")'
+    ws["A2"] = "Tesco"
+    assert ws["A1"].data_type == "f"  # what openpyxl would have saved
+    _no_formulas(wb)
+    assert ws["A1"].data_type == "s" and ws["A1"].value.startswith("=HYPERLINK")
+    assert ws["A2"].data_type == "s"

@@ -7,12 +7,28 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
+USERNAME_RE = re.compile(r"[a-z0-9._]{3,30}")
+
+
+def clean_username(v: str) -> str:
+    """Usernames, at sign-up and when changed: 3-30 lowercase letters, numbers, dots or underscores."""
+    v = v.strip().lower()
+    if not USERNAME_RE.fullmatch(v):
+        raise ValueError("Use 3-30 lowercase letters, numbers, dots or underscores")
+    return v
+
+
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
+    username: str = Field(max_length=50)  # rules in clean_username
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     # True after "Did you mean …?" when the person kept their own address
     email_typo_checked: bool = False
+
+    @field_validator('username')
+    @classmethod
+    def username_format(cls, v: str) -> str:
+        return clean_username(v)
 
 class UserLogin(BaseModel):
     """
@@ -80,7 +96,7 @@ class DeleteAccountRequest(BaseModel):
 class UserUpdate(BaseModel):
     """Profile fields a user can change. Omitted fields are left as they are."""
     name: Optional[str] = Field(None, max_length=100)
-    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    username: Optional[str] = Field(None, max_length=50)  # rules in clean_username
     bio: Optional[str] = Field(None, max_length=500)
     avatar: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
     payment_handles: Optional[PaymentHandles] = None
@@ -106,10 +122,4 @@ class UserUpdate(BaseModel):
     @field_validator('username')
     @classmethod
     def username_format(cls, v: Optional[str]) -> Optional[str]:
-        # Same shape as at sign-up: lowercase letters, numbers, dots and underscores
-        if v is None:
-            return v
-        v = v.lower()
-        if not re.fullmatch(r"[a-z0-9._]{3,30}", v):
-            raise ValueError("Use 3-30 lowercase letters, numbers, dots or underscores")
-        return v
+        return None if v is None else clean_username(v)

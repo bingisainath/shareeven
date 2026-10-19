@@ -10,7 +10,7 @@ import Avatar from '../common/Avatar';
 
 const MAX = 5;
 
-const ForwardSheet: React.FC<{ visible: boolean; onClose: () => void; onSend: (ids: string[]) => void }> = ({ visible, onClose, onSend }) => {
+const ForwardSheet: React.FC<{ visible: boolean; onClose: () => void; onSend: (ids: string[]) => void; title?: string }> = ({ visible, onClose, onSend, title = 'Forward to…' }) => {
   const conversations = useChat((s) => s.conversations);
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
@@ -27,7 +27,7 @@ const ForwardSheet: React.FC<{ visible: boolean; onClose: () => void; onSend: (i
     <Modal visible={visible} animationType="slide" onRequestClose={close}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <Text style={styles.title}>Forward to…</Text>
+          <Text style={styles.title}>{title}</Text>
           <Pressable onPress={close} hitSlop={10} accessibilityLabel="Close"><X size={22} color={colors.muted600} /></Pressable>
         </View>
         <TextInput value={query} onChangeText={setQuery} placeholder="Search chats" placeholderTextColor={colors.muted400} style={styles.search} />

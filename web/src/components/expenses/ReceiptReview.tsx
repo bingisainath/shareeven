@@ -4,7 +4,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { AlertTriangle, CheckCircle2, Plus, ScanLine, Sparkles, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Plus, ScanLine, Sparkles, Tag, Trash2 } from 'lucide-react';
 import { CATEGORIES, expenseService } from '../../services/expense.service';
 import CategoryIcon from './CategoryIcon';
 import ReceiptLine from './ReceiptLine';
@@ -85,7 +85,6 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   const [draft, setDraft] = useState<Draft>(() => toDraft(initial));
   const [expanded, setExpanded] = useState<number | null>(null);
   const [lineShown, setLineShown] = useState<Record<number, boolean>>({}); // the printed line under an item
-  const [painter, setPainter] = useState<string | null>(null); // quick assign: tapping an item toggles this person
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -368,28 +367,6 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         </div>
       </div>
 
-      {/* Quick assign: pick a person, then tap their items */}
-      <div role="group" aria-label="Quick assign" className={`rounded-xl border p-3 ${painter ? 'border-primary-300 bg-primary-50' : 'border-muted-200'}`}>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-muted-700">
-            {painter
-              ? <><b className="text-primary-800">Tap items for {nameOf(painter)}</b> <span className="text-muted-500">· tap again to take them off</span></>
-              : 'Quick assign: pick a person, then tap their items.'}
-          </p>
-          {painter && (
-            <button type="button" onClick={() => setPainter(null)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full bg-primary-600 text-white">
-              <X size={12} /> Done
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2.5 mt-2">
-          {members.filter((m) => inExpense(m.id) || painter === m.id).map((m) => (
-            <PersonToggle key={m.id} member={m} size="xs" label={nameOf(m.id)} selected={painter === m.id}
-              onToggle={() => setPainter(painter === m.id ? null : m.id)} />
-          ))}
-        </div>
-      </div>
-
       {/* Items */}
       <ul className="space-y-2">
         {draft.items.map((item, n) => {
@@ -402,21 +379,13 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
           const box = serverItem?.source_box;
           const photoOfLine = box ? server.images[box.photo] : undefined;
           const showLine = !!photoOfLine && (lineShown[n] ?? lowConfidence);
-          const painted = !!painter && item.assignments.some((a) => a.user_id === painter);
           return (
             <li
               key={n}
-              onClick={painter && !voided ? (e) => {
-                if ((e.target as HTMLElement).closest('button, input, select, a, label')) return;
-                togglePerson(n, painter);
-              } : undefined}
-              className={`p-3.5 rounded-[14px] border ${painter && !voided ? 'cursor-pointer' : ''} ${painted ? 'ring-2 ring-primary-400' : ''} ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : expanded === n ? 'border-primary-300 bg-white shadow-card' : 'border-muted-200 bg-white'} ${voided ? 'opacity-50' : ''}`}
+              className={`p-3.5 rounded-[14px] border ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : expanded === n ? 'border-primary-300 bg-white shadow-card' : 'border-muted-200 bg-white'} ${voided ? 'opacity-50' : ''}`}
             >
               <div className="flex items-start gap-2">
-                <button type="button" className="flex-1 min-w-0 text-left"
-                  onClick={() => (painter && !voided ? togglePerson(n, painter) : setExpanded(expanded === n ? null : n))}
-                  aria-expanded={painter ? undefined : expanded === n}
-                  title={painter ? `${painted ? 'Take' : 'Put'} ${nameOf(painter)} ${painted ? 'off' : 'on'} this line` : 'Edit this line'}>
+                <button type="button" className="flex-1 min-w-0 text-left" onClick={() => setExpanded(expanded === n ? null : n)} aria-expanded={expanded === n} title="Edit this line">
                   <p className={`font-medium text-muted-900 truncate ${voided ? 'line-through' : ''}`}>
                     {item.quantity !== '1' && <span className="text-muted-500">{item.quantity}{item.unit !== 'each' ? item.unit : '×'} </span>}
                     {item.name}

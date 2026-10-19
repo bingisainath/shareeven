@@ -14,7 +14,7 @@ import { CryptoError, b64 } from './primitives';
 import type { DeviceList, DevicePublic } from './identity';
 import { verifyDeviceList } from './identity';
 import { decodeBody, encodeBody, MessageBody } from './body';
-import { decryptFrom, encryptFor, Address } from './session';
+import { decryptFrom, encryptFor, Address, needsSession } from './session';
 import type { PreKeyBundle } from './prekeys';
 import { distribution, fromDistribution, groupDecrypt, groupEncrypt, needsRotation, newSenderKey } from './senderKeys';
 import { fromGroupPacket, fromMessagePacket, GroupPacket, MessagePacket, senderName, toGroupPacket, toMessagePacket } from './packets';
@@ -118,8 +118,9 @@ export class Messenger {
   /** Every device that should get a message in this conversation, except this one. */
   private async targets(members: string[]): Promise<{ user: string; device: DevicePublic }[]> {
     const out: { user: string; device: DevicePublic }[] = [];
-    for (const user of members) {
-      const devices = await this.devicesOf(user);
+    const lists = await Promise.all(members.map((user) => this.devicesOf(user))); // all at once, then in order
+    for (const [n, user] of members.entries()) {
+      const devices = lists[n];
       if (!devices) throw new CryptoError('no_session', `${user} hasn't set up encryption v2`);
       if (user !== this.me.user && (await this.store.pin(user))?.needsAccept) {
         throw Object.assign(new CryptoError('identity_changed', 'Their security code changed. Check or accept the new code in the chat before sending.'), { user });
@@ -129,7 +130,8 @@ export class Messenger {
     return out;
   }
 
-  private bundle = (user: string, device: number) => () => this.http.get<PreKeyBundle>(`/e2e/v2/users/${user}/devices/${device}/bundle`);
+  private bundle = (user: string, device: number) => () =>
+    this.prefetched.get(`${user}:${device}`) ?? this.http.get<PreKeyBundle>(`/e2e/v2/users/${user}/devices/${device}/bundle`);
 
   // ---------------- sending
 
@@ -139,8 +141,29 @@ export class Messenger {
    */
   async encrypt(conv: string, isGroup: boolean, members: string[], body: MessageBody): Promise<OutgoingEnvelope[]> {
     const targets = await this.targets(members);
+    await this.prefetchBundles(targets);
     // One at a time with receiving: both move the same sessions forward
-    return this.store.transaction((tx) => (isGroup ? this.encryptGroup(tx, conv, targets, body) : this.encryptDirect(tx, conv, targets, body)));
+    try {
+      return await this.store.transaction((tx) => (isGroup ? this.encryptGroup(tx, conv, targets, body) : this.encryptDirect(tx, conv, targets, body)));
+    } finally {
+      this.prefetched.clear();
+    }
+  }
+
+  /**
+   * The first message to a device needs its prekey bundle. Fetch them all at once before encrypting
+   * (one round trip instead of one per device); only for devices with no usable session, so no
+   * one-time prekey is used up needlessly. A device whose session appears meanwhile just doesn't use it.
+   */
+  private prefetched = new Map<string, Promise<PreKeyBundle>>();
+  private async prefetchBundles(targets: { user: string; device: DevicePublic }[]): Promise<void> {
+    const needed = await Promise.all(targets.map((t) => needsSession(this.store, { user: t.user, device: t.device.id }, t.device).catch(() => false)));
+    targets.forEach((t, n) => {
+      if (!needed[n]) return;
+      const fetching = this.http.get<PreKeyBundle>(`/e2e/v2/users/${t.user}/devices/${t.device.id}/bundle`);
+      fetching.catch(() => undefined); // read (and any error surfaced) by encryptFor when it asks
+      this.prefetched.set(`${t.user}:${t.device.id}`, fetching);
+    });
   }
 
   private async encryptDirect(tx: StoreView, conv: string, targets: { user: string; device: DevicePublic }[], body: MessageBody): Promise<OutgoingEnvelope[]> {

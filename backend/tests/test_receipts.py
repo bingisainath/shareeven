@@ -544,13 +544,30 @@ async def test_ocr_read_that_doesnt_add_up_goes_to_the_photo_model(client, six, 
     assert [c["model"] for c in usage["calls"]] == ["claude-sonnet-5", "claude-opus-5"]
 
 
-async def test_unclear_ocr_skips_the_text_model(client, six, ocr_ai, db):
+async def test_unclear_photo_asks_for_a_new_one_instead_of_the_photo_model(client, six, ocr_ai, db):
+    people, group = await six()
+    ocr_ai.ocr_confidence = 0.90
+    receipt = await scan(client, people[0], group)
+    assert ocr_ai.text_calls == [] and ocr_ai.calls == []  # no model paid for a photo nobody can read
+    assert receipt["status"] == "failed" and receipt["error"].startswith("This photo is too blurry or dark to read.")
+    # A failed scan doesn't use up one of the month's scans
+    assert (await client.get("/api/v1/ai/settings", headers=people[0].headers)).json()["data"]["usage"]["scans_this_month"] == 0
+
+
+async def test_unclear_photo_can_still_go_to_the_photo_model(client, six, ocr_ai, db, monkeypatch):
+    monkeypatch.setattr(settings, "RECEIPT_OCR_RETAKE_UNCLEAR", False)
     people, group = await six()
     ocr_ai.ocr_confidence = 0.90
     receipt = await scan(client, people[0], group)
     assert ocr_ai.text_calls == [] and len(ocr_ai.calls) == 1
     assert receipt["model"] == "claude-opus-5"
     assert (await _usage(db, receipt["id"]))["path"] == "ocr_then_photos"
+
+
+def test_retake_messages_say_which_photo():
+    assert pipeline.retake_message([2], 3, False).startswith("Photo 2 is too blurry")
+    assert pipeline.retake_message([1, 3], 3, False).startswith("Photo 1 and 3 are too blurry")
+    assert pipeline.retake_message([], 1, True).startswith("Couldn't find a receipt in this photo")
 
 
 async def test_photo_model_failing_keeps_the_ocr_read(client, six, ocr_ai):

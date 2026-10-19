@@ -63,6 +63,12 @@ const sameDevice = (record: SessionRecord, device: DevicePublic) => record.their
  * Encrypt for one device. `device` must come from that user's verified device list; `fetchBundle`
  * is only called when there's no session yet.
  */
+/** Does sending to this device need a new session first (its prekey bundle fetched)? */
+export async function needsSession(store: ProtocolStore, peer: Address, device: DevicePublic): Promise<boolean> {
+  const record = await store.loadSession(peer);
+  return !record || !sameDevice(record, device) || !canSend(loadRatchet(record.current.ratchet));
+}
+
 export async function encryptFor(
   store: ProtocolStore, peer: Address, device: DevicePublic, plaintext: Uint8Array, fetchBundle: () => Promise<PreKeyBundle>,
 ): Promise<EncryptedForDevice> {

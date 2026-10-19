@@ -83,3 +83,21 @@ async def test_email_registration_is_case_insensitive(client, make_user):
         "username": user.username + "x", "email": user.email.upper(), "password": "Passw0rd!23",
     })
     assert r.status_code in (400, 409)
+
+
+async def test_signup_rejects_usernames_with_special_characters(client):
+    for username in ["x'; DROP TABLE users;--", "<script>alert(1)</script>", "two words", "ålice", "bad-name", "ab", "x" * 31, "a%b"]:
+        r = await client.post("/api/v1/auth/register", json={
+            "username": username, "email": f"{uuid.uuid4().hex[:8]}@example.com", "password": "Passw0rd!23"})
+        assert r.status_code == 422, (username, r.text)
+        assert "lowercase letters, numbers, dots or underscores" in r.json()["message"]
+
+
+async def test_usernames_ignore_case(client, make_user):
+    user = await make_user("case")
+    r = await client.post("/api/v1/auth/login", json={"identifier": user.username.upper(), "password": "Passw0rd!23"})
+    assert r.status_code == 200
+    # "CASE_…" is the same name as "case_…": it can't be taken a second time
+    r = await client.post("/api/v1/auth/register", json={
+        "username": user.username.upper(), "email": f"{uuid.uuid4().hex[:8]}@example.com", "password": "Passw0rd!23"})
+    assert r.status_code == 409

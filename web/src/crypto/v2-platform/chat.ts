@@ -33,6 +33,11 @@ export async function v2For(chat: ChatInfo) {
 const typeOf = (p: MediaPointer): Message['mediaType'] => p.type || (p.mime.startsWith('image/') ? 'image' : p.mime.startsWith('video/') ? 'video' : p.mime.startsWith('audio/') ? 'audio' : 'file');
 
 /** Chat-message fields from a local v2 message (text, media pointer, reply, edit state). */
+/** When a chat opens: fetch and check its members' device lists now, so the first message sends quickly. */
+export function warmChat(chat: ChatInfo): void {
+  v2For(chat).catch(() => undefined);
+}
+
 export function fromLocal(m: LocalMessage): Partial<Message> {
   const p = m.media?.[0];
   return {

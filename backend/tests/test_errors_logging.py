@@ -72,6 +72,18 @@ def test_production_settings_are_checked():
     assert production_problems(dev) == [] and docs_urls(dev) == {}
     weak = SimpleNamespace(ENV="production", JWT_SECRET_KEY="your-secret-key-change-this-in-production", MEDIA_ENCRYPTION_KEY="")
     assert len(production_problems(weak)) == 2
-    good = SimpleNamespace(ENV="production", JWT_SECRET_KEY="x" * 44, MEDIA_ENCRYPTION_KEY="k" * 44)
+    good = SimpleNamespace(ENV="production", JWT_SECRET_KEY="x" * 44, MEDIA_ENCRYPTION_KEY="k" * 44,
+                           DATABASE_URL="postgresql+asyncpg://app:Long-Random-1@db:5432/shareeven", RECEIPT_OCR_DEBUG_DIR="")
     assert production_problems(good) == []
+    leaky = SimpleNamespace(**{**vars(good), "RECEIPT_OCR_DEBUG_DIR": "ocr_debug", "DATABASE_URL": "postgresql+asyncpg://papyris:papyris@db/x"})
+    assert [p.split(" ")[0] for p in production_problems(leaky)] == ["RECEIPT_OCR_DEBUG_DIR", "DATABASE_URL"]
     assert docs_urls(good) == {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+def test_production_warnings():
+    from types import SimpleNamespace
+    from app.main import production_warnings
+    loose = SimpleNamespace(ENV="production", REDIS_URL="redis://redis:6379/0", CORS_ORIGINS=["http://localhost:3000", "https://shareeven.com"])
+    assert production_warnings(loose) == ["REDIS_URL has no password", "CORS_ORIGINS still allows localhost"]
+    tight = SimpleNamespace(ENV="production", REDIS_URL="redis://:secret@redis:6379/0", CORS_ORIGINS=["https://shareeven.com"])
+    assert production_warnings(tight) == []

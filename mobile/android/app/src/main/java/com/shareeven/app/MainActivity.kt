@@ -33,10 +33,11 @@ class MainActivity : ReactActivity() {
     moveTaskToBack(true)
   }
 
-  /** A chat notification tapped while the app was open in the background (see NotificationsModule). */
+  /** A chat notification tapped, or something shared to the app, while it was open in the background. */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
     NotificationsModule.onNewIntent(intent)
+    ShareModule.onNewIntent(intent)
   }
 }

@@ -17,7 +17,7 @@ import {
   updateConversationLastMessage,
 } from '../slices/chatSlice';
 import { decryptMessage, previewText, unverifiedMessages } from '../../crypto/messages';
-import { fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields } from '../../crypto/v2-platform/chat';
+import { fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields, warmChat } from '../../crypto/v2-platform/chat';
 import type { Message } from '../slices/chatSlice';
 
 /**
@@ -163,7 +163,10 @@ export function flagUnverified(dispatch: AppDispatch, conversationId: string, me
 /**
  * Fetch the newest page of messages for a conversation
  */
-export const fetchMessages = (conversationId: string) => async (dispatch: AppDispatch) => {
+export const fetchMessages = (conversationId: string) => async (dispatch: AppDispatch, getState: () => RootState) => {
+  // Fetch and check the members' device lists now, so the first message sends without waiting on them
+  const c = getState().chat.conversations.find((x) => x.id === conversationId);
+  if (c?.members?.length) warmChat({ conversationId, isGroup: !!c.isGroup, members: c.members });
   try {
     dispatch(setMessagesLoading(true));
 
