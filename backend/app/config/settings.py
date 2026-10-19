@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     # outputs. Plain text on disk, so leave it empty on a real server.
     RECEIPT_OCR_DEBUG_DIR: str = ""
     RECEIPT_OCR_MIN_CONFIDENCE: float = 0.95  # below this, the photo is too unclear for the text path
+    # An unclear photo (blurry, dark, no receipt text): ask for a new photo instead of paying the photo model
+    RECEIPT_OCR_RETAKE_UNCLEAR: bool = True
     RECEIPT_OCR_THREADS: int = 4  # CPU threads for OCR; one photo is read at a time
 
     # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
