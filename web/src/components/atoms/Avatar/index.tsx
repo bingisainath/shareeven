@@ -1,5 +1,6 @@
 // src/components/atoms/Avatar.tsx
 import React, { useEffect, useState } from 'react';
+import { initials as initialsOf } from '../../../utils/initials';
 import { resolveMediaUrl } from '../../../utils/media';
 
 // Initials sit on one of these, picked from the name, so a person keeps the same colour everywhere
@@ -39,7 +40,7 @@ const Avatar: React.FC<AvatarProps> = ({
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   // Initials are drawn here (no third-party avatar service sees people's names)
-  const initials = alt.trim().split(/[\s_.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+  const initials = initialsOf(alt); // emoji and Indian scripts stay whole
   const photo = !failed ? resolveMediaUrl(src) : null;
 
   const textSizes: Record<string, string> = {

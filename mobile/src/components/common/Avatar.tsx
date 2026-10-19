@@ -4,9 +4,9 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { mediaUrl } from '../../config';
 import { colors } from '../../theme';
 import Gradient, { toneFor } from './Gradient';
+import { initials } from '../../utils/initials';
 
-export const initials = (name?: string | null) =>
-  (name || '?').trim().split(/[\s_.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+export { initials }; // emoji and Indian scripts stay whole (utils/initials.ts)
 
 interface Props {
   uri?: string | null;

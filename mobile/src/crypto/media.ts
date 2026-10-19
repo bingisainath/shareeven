@@ -283,3 +283,23 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
   if (!key || isLocalFile(url)) return { src: isLocalFile(url) ? url : mediaUrl(url), failed: false };
   return state.for === id ? { src: state.src, failed: state.failed } : { failed: false };
 }
+
+/**
+ * Keep the phone's storage in check (at app start): decrypted media nobody opened for 30 days is
+ * removed (it's downloaded and decrypted again if opened), and copies of files shared in from other
+ * apps after 2 days (they've been sent or dropped by then).
+ */
+export async function pruneCaches(now = Date.now()): Promise<number> {
+  const rules = [{ dir: DIR, maxAgeMs: 30 * 86_400_000 }, { dir: `${fs.dirs.CacheDir}/shared`, maxAgeMs: 2 * 86_400_000 }];
+  let removed = 0;
+  for (const { dir, maxAgeMs } of rules) {
+    if (!(await fs.isDir(dir).catch(() => false))) continue;
+    const files = await fs.lstat(dir).catch(() => []);
+    for (const f of files) {
+      if (f.type === 'file' && now - Number(f.lastModified) > maxAgeMs && !inFlight.has(f.filename.split('.')[0])) {
+        await fs.unlink(f.path).then(() => { removed += 1; }).catch(() => undefined);
+      }
+    }
+  }
+  return removed;
+}
