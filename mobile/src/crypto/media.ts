@@ -171,11 +171,16 @@ export async function encryptFileV2(file: { uri: string; type: string }): Promis
 
 const inFlight = new Map<string, Promise<string>>();
 
+/** A file on this phone (the copy being sent), not a server address. */
+const isLocalFile = (url: string) => /^(file|content):\/\//.test(url);
+
 /**
  * Download an encrypted file, decrypt it into the cache and return its file:// URI.
  * The same file (address + key) is only downloaded and decrypted once.
  */
 export function decryptedFile(url: string, key: string, mime?: string, v2?: V2File): Promise<string> {
+  // Our own photo while it's being sent: the plain local copy, nothing to download or decrypt
+  if (isLocalFile(url)) return Promise.resolve(url);
   const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
   const existing = inFlight.get(id);
   if (existing) return existing;
@@ -257,7 +262,7 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
   const id = url && key ? `${url.split('?')[0]}#${key}` : undefined;
 
   useEffect(() => {
-    if (!url || !key) return;
+    if (!url || !key || isLocalFile(url)) return;
     let alive = true;
     decryptedFile(url, key, mime, v2)
       .then((src) => alive && setState({ src, failed: false, for: id }))
@@ -269,6 +274,6 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
   }, [url, key, mime, id, v2?.sha256]);
 
   if (!url) return { failed: false };
-  if (!key) return { src: mediaUrl(url), failed: false };
+  if (!key || isLocalFile(url)) return { src: isLocalFile(url) ? url : mediaUrl(url), failed: false };
   return state.for === id ? { src: state.src, failed: state.failed } : { failed: false };
 }
