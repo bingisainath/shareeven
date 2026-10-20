@@ -7,6 +7,7 @@ import { useMediaSrc } from '../../crypto/media';
 import type { Message } from '../../api/chat';
 import { colors, radius, space } from '../../theme';
 import { clockTime } from '../../utils/time';
+import { blurUri } from '../../utils/blurPreview';
 import Avatar from '../common/Avatar';
 
 export type ChatItem = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] };
@@ -72,9 +73,9 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
 const AlbumPhoto: React.FC<{ message: Message }> = ({ message: m }) => {
   const { src } = useMediaSrc(m.mediaUrl, m.mediaKey, m.mediaMime, m.mediaV2);
   // Grey while the photo is decrypted, never the bubble's purple showing through
-  return src
-    ? <Image source={{ uri: src }} style={styles.image} />
-    : <View style={[styles.image, styles.pending]}><Lock size={18} color={colors.muted400} /></View>;
+  if (src) return <Image source={{ uri: src }} style={styles.image} />;
+  if (m.mediaBlur) return <Image source={{ uri: blurUri(m.mediaBlur)! }} style={styles.image} blurRadius={12} />;
+  return <View style={[styles.image, styles.pending]}><Lock size={18} color={colors.muted400} /></View>;
 };
 
 const TILE = 120;

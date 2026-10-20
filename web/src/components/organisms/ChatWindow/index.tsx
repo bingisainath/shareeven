@@ -489,6 +489,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 e2e={message.e2e}
                 mediaV2={message.mediaV2}
                 thumbV2={message.thumbV2}
+                mediaBlur={message.mediaBlur}
                 e2eUnverified={message.e2eUnverified}
                 uploadProgress={message.uploadProgress}
                 isGroup={isGroup}

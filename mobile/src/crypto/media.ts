@@ -11,7 +11,8 @@ import { useEffect, useState } from 'react';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { sha256 } from '@noble/hashes/sha2';
 import {
-  FILE_CHUNK, FILE_HEADER, FileDecryptor, FileEncryptor, fromBase64, jpegOrientation, newFileKey, stripJpegMetadata, toBase64, utf8,
+  FILE_CHUNK, FILE_HEADER, FileDecryptor, FileEncryptor, fromBase64 as jsFromBase64, jpegOrientation, newFileKey, stripJpegMetadata,
+  toBase64 as jsToBase64, utf8,
 } from './e2e';
 import { mediaUrl } from '../config';
 import { encryptMedia, MediaDecryptor, MediaEncryptor } from './v2/media';
@@ -20,6 +21,46 @@ import { encryptMedia, MediaDecryptor, MediaEncryptor } from './v2/media';
 export interface V2File { sha256: string; size: number }
 
 const fs = ReactNativeBlobUtil.fs;
+
+/**
+ * Files move between JavaScript and the file system as base64, megabytes at a time: native base64
+ * (react-native-quick-base64) when it's there and gives the same result, else the JavaScript one.
+ */
+const base64 = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const q = require('react-native-quick-base64');
+    const sample = Uint8Array.from({ length: 300 }, (_, i) => (i * 37) & 255);
+    const text = q.fromByteArray(sample);
+    const back: Uint8Array = q.toByteArray(text);
+    if (text === jsToBase64(sample) && back.length === sample.length && back.every((b, i) => b === sample[i])) {
+      return { from: (t: string): Uint8Array => q.toByteArray(t), to: (b: Uint8Array): string => q.fromByteArray(b) };
+    }
+  } catch {
+    // not in this build (tests, web): JavaScript
+  }
+  return { from: jsFromBase64, to: jsToBase64 };
+})();
+const fromBase64 = (t: string) => base64.from(t);
+const toBase64 = (b: Uint8Array) => base64.to(b);
+
+/**
+ * At most two files are downloaded and decrypted at once, the newest request first (what's on the
+ * screen now): a chat full of photos then stays smooth instead of starting everything together.
+ */
+const MAX_DECRYPTING = 2;
+let decrypting = 0;
+const waiting: (() => void)[] = [];
+async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  if (decrypting >= MAX_DECRYPTING) await new Promise<void>((go) => waiting.push(go));
+  decrypting += 1;
+  try {
+    return await work();
+  } finally {
+    decrypting -= 1;
+    waiting.pop()?.(); // newest first
+  }
+}
 const DIR = `${fs.dirs.CacheDir}/e2e`;
 const TAG = 16;
 const SMALL = 8 * 1024 * 1024; // up to this size, a file is processed in one go
@@ -146,11 +187,14 @@ export async function encryptFileV2(file: { uri: string; type: string }): Promis
   const source = plainPath(file.uri);
   const target = `${DIR}/up2-${Date.now()}-${Math.random().toString(36).slice(2)}.enc`;
   const { size } = await fs.stat(source);
+  const started = Date.now();
+  const timing = () => console.log(`[media] ${(Number(size) / 1e6).toFixed(2)} MB: encrypted in ${Date.now() - started} ms`);
   if (size <= SMALL) {
     let data = fromBase64(await fs.readFile(source, 'base64'));
     if (file.type === 'image/jpeg' && jpegOrientation(data) === 1) data = stripJpegMetadata(data);
     const sealed = encryptMedia(data);
     await fs.writeFile(target, toBase64(sealed.blob), 'base64');
+    timing();
     return { uri: `file://${target}`, key: sealed.key, sha256: sealed.sha256, size: sealed.size };
   }
   const encryptor = new MediaEncryptor();
@@ -166,6 +210,7 @@ export async function encryptFileV2(file: { uri: string; type: string }): Promis
   } finally {
     await writer.close();
   }
+  timing();
   return { uri: `file://${target}`, key: done.key, sha256: done.sha256, size: done.size };
 }
 
@@ -187,51 +232,43 @@ export function decryptedFile(url: string, key: string, mime?: string, v2?: V2Fi
   const work = (async () => {
     await ensureDir();
     const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
-    if (await fs.exists(target)) return `file://${target}`;
-    const download = `${DIR}/${id}.download`;
-    const response = await ReactNativeBlobUtil.config({ path: download }).fetch('GET', mediaUrl(url)!);
-    if (response.info().status !== 200) {
-      await fs.unlink(download).catch(() => undefined);
-      throw new Error(`Download failed (${response.info().status})`);
-    }
-    const partial = `${target}.part`;
-    if (v2) {
-      // PMV2: the decryptor finds the header and the last chunk itself, and checks the hash
-      try {
-        const decryptor = new MediaDecryptor({ key, sha256: v2.sha256, size: v2.size });
-        const writer = await fs.writeStream(partial, 'base64', false);
-        try {
-          await readPieces(download, FILE_CHUNK, 0, async (piece) => {
-            for (const p of decryptor.push(piece)) if (p.length) await writer.write(toBase64(p));
-          });
-          for (const p of decryptor.finish()) if (p.length) await writer.write(toBase64(p));
-        } finally {
-          await writer.close();
-        }
-        await fs.mv(partial, target);
-        return `file://${target}`;
-      } catch (e) {
-        await fs.unlink(partial).catch(() => undefined);
-        throw e;
-      } finally {
-        await fs.unlink(download).catch(() => undefined);
-      }
-    }
+    if (await fs.exists(target)) return `file://${target}`; // decrypted before: no waiting in line
+    return inTurn(() => downloadAndDecrypt(url, key, target, id, v2));
+  })();
+  inFlight.set(id, work);
+  work.catch(() => inFlight.delete(id));
+  return work;
+}
+
+async function downloadAndDecrypt(url: string, key: string, target: string, id: string, v2?: V2File): Promise<string> {
+  const started = Date.now();
+  const download = `${DIR}/${id}.download`;
+  const response = await ReactNativeBlobUtil.config({ path: download }).fetch('GET', mediaUrl(url)!);
+  if (response.info().status !== 200) {
+    await fs.unlink(download).catch(() => undefined);
+    throw new Error(`Download failed (${response.info().status})`);
+  }
+  const downloaded = Date.now();
+  const timing = async () => {
+    const size = await fs.stat(target).then((st) => Number(st.size)).catch(() => 0);
+    console.log(`[media] ${(size / 1e6).toFixed(2)} MB: downloaded in ${downloaded - started} ms, decrypted in ${Date.now() - downloaded} ms`);
+  };
+  const partial = `${target}.part`;
+  if (v2) {
+    // PMV2: the decryptor finds the header and the last chunk itself, and checks the hash
     try {
-      let decryptor: FileDecryptor | null = null;
+      const decryptor = new MediaDecryptor({ key, sha256: v2.sha256, size: v2.size });
       const writer = await fs.writeStream(partial, 'base64', false);
       try {
-        await readPieces(download, FILE_CHUNK + TAG, FILE_HEADER, async (piece, last) => {
-          if (!decryptor) throw new Error('File too short');
-          const plain = decryptor.push(piece, last);
-          if (plain.length) await writer.write(toBase64(plain));
-        }, (header) => {
-          decryptor = new FileDecryptor(fromBase64(key), header);
+        await readPieces(download, FILE_CHUNK, 0, async (piece) => {
+          for (const p of decryptor.push(piece)) if (p.length) await writer.write(toBase64(p));
         });
+        for (const p of decryptor.finish()) if (p.length) await writer.write(toBase64(p));
       } finally {
         await writer.close();
       }
       await fs.mv(partial, target);
+      await timing();
       return `file://${target}`;
     } catch (e) {
       await fs.unlink(partial).catch(() => undefined);
@@ -239,10 +276,30 @@ export function decryptedFile(url: string, key: string, mime?: string, v2?: V2Fi
     } finally {
       await fs.unlink(download).catch(() => undefined);
     }
-  })();
-  inFlight.set(id, work);
-  work.catch(() => inFlight.delete(id));
-  return work;
+  }
+  try {
+    let decryptor: FileDecryptor | null = null;
+    const writer = await fs.writeStream(partial, 'base64', false);
+    try {
+      await readPieces(download, FILE_CHUNK + TAG, FILE_HEADER, async (piece, last) => {
+        if (!decryptor) throw new Error('File too short');
+        const plain = decryptor.push(piece, last);
+        if (plain.length) await writer.write(toBase64(plain));
+      }, (header) => {
+        decryptor = new FileDecryptor(fromBase64(key), header);
+      });
+    } finally {
+      await writer.close();
+    }
+    await fs.mv(partial, target);
+    await timing();
+    return `file://${target}`;
+  } catch (e) {
+    await fs.unlink(partial).catch(() => undefined);
+    throw e;
+  } finally {
+    await fs.unlink(download).catch(() => undefined);
+  }
 }
 
 /** We just encrypted and uploaded this file ourselves: show it from the local copy instead of downloading. */

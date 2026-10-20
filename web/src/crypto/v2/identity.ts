@@ -3,7 +3,7 @@
 // number is computed from AIKs, so linking a device never changes it.
 
 import {
-  b64, canonicalJson, concatBytes, CryptoError, KeyPair, newEd25519, newX25519, sha256, sign, u32be, u64be, unb64, utf8, verify,
+  b64, canonicalJson, concatBytes, CryptoError, KeyPair, newEd25519, newX25519, sha256, sign, u32be, u64be, unb64, utf8, verify, hashSha256,
 } from './primitives';
 
 export interface DeviceIdentity {
@@ -90,8 +90,8 @@ export function verifyDeviceList(list: DeviceList, expectedUser: string, pinnedA
  */
 export function safetyNumber(a: { user: string; aik: Uint8Array }, b: { user: string; aik: Uint8Array }): string {
   const part = (p: { user: string; aik: Uint8Array }) => {
-    let hash = sha256(concatBytes(utf8('PapyrisSafetyNumber.v2'), utf8(p.user), p.aik));
-    for (let i = 0; i < 5199; i++) hash = sha256(concatBytes(hash, p.aik)); // slow to search for collisions, like Signal's 5200 iterations
+    let hash = hashSha256(concatBytes(utf8('PapyrisSafetyNumber.v2'), utf8(p.user), p.aik));
+    for (let i = 0; i < 5199; i++) hash = hashSha256(concatBytes(hash, p.aik)); // slow to search for collisions, like Signal's 5200 iterations
     let digits = '';
     for (let i = 0; i < 30; i += 5) {
       const n = (hash[i] * 2 ** 32 + hash[i + 1] * 2 ** 24 + hash[i + 2] * 2 ** 16 + hash[i + 3] * 2 ** 8 + hash[i + 4]) % 100000;

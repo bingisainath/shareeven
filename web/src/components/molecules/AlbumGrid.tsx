@@ -5,7 +5,7 @@ import React from 'react';
 import { Avatar } from '../atoms';
 import Icon from '../atoms/Icon';
 import { formatMessageTime } from '../../utils/dateFormat';
-import { resolveMediaUrl } from '../../utils/media';
+import { blurUri, resolveMediaUrl } from '../../utils/media';
 import { useMediaSrc } from '../../crypto/media';
 import type { Message } from '../../redux/slices/chatSlice';
 
@@ -53,7 +53,9 @@ const AlbumPhoto: React.FC<{ message: Message; onMediaError?: () => void }> = ({
   const { src } = useMediaSrc(resolveMediaUrl(m.mediaUrl), m.mediaKey, m.mediaMime, m.mediaV2);
   return src
     ? <img src={src} alt={m.mediaFilename || 'Photo'} loading="lazy" onError={m.mediaKey ? undefined : onMediaError} className="w-full h-full object-cover" />
-    : <span className="block w-full h-full animate-pulse" />;
+    : m.mediaBlur
+      ? <span className="block w-full h-full overflow-hidden"><img src={blurUri(m.mediaBlur)} alt="" className="w-full h-full object-cover blur-md scale-110" /></span>
+      : <span className="block w-full h-full animate-pulse" />;
 };
 
 /** Split a chat into single messages and albums (4+ captionless photos from one person in a row). */
