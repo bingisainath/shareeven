@@ -549,6 +549,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             alt={conversationName}
             size="md"
             online={isOnline}
+            group={isGroup}
           />
         </button>
 

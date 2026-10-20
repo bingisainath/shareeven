@@ -39,20 +39,4 @@ const Gradient: React.FC<{ from: string; to: string }> = ({ from, to }) => {
 // middle: the card's own background, so nothing shows as a different purple before the gradient draws
 export const CARD_GRADIENT = { from: '#4a376e', to: '#705798', middle: '#5d4783' };
 
-// Initials sit on one of these, picked from the name, so a person keeps the same colour everywhere (same as web)
-const TONES: [string, string][] = [
-  ['#7964a6', '#4b376e'], // purple
-  ['#cf8490', '#9b4e5a'], // rose
-  ['#e1a34b', '#a75a13'], // amber
-  ['#5c91c9', '#36618d'], // blue
-  ['#51a676', '#27714a'], // green
-  ['#8995a8', '#586477'], // slate
-];
-
-export function toneFor(name: string): [string, string] {
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
-  return TONES[Math.abs(hash) % TONES.length];
-}
-
 export default Gradient;

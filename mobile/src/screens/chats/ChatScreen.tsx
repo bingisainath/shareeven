@@ -127,7 +127,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     navigation.setOptions({
       headerTitle: () => (
         <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} style={styles.headerTitle} accessibilityLabel="Chat info">
-          <Avatar uri={conversation?.avatar} name={conversation?.name} size={36} online={!!otherId && online.includes(otherId)} />
+          <Avatar uri={conversation?.avatar} name={conversation?.name} size={36} online={!!otherId && online.includes(otherId)} group={!!conversation?.isGroup} />
           <View style={styles.headerText}>
             <View style={styles.headerNameRow}>
               <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>

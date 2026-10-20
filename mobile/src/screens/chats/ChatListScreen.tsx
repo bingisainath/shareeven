@@ -181,7 +181,7 @@ const ChatRow = React.memo<{
     style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     accessibilityLabel={`${item.name}${item.unreadCount ? `, ${item.unreadCount} unread` : ''}`}
   >
-    <Avatar uri={item.avatar} name={item.name} size={50} online={online} />
+    <Avatar uri={item.avatar} name={item.name} size={50} online={online} group={item.isGroup} />
     <View style={styles.rowBody}>
       <View style={styles.rowTop}>
         <View style={styles.nameRow}>

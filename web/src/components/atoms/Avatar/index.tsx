@@ -1,23 +1,9 @@
 // src/components/atoms/Avatar.tsx
+// A profile photo, or with no photo a person icon (a group icon for groups) on a soft pastel colour.
 import React, { useEffect, useState } from 'react';
-import { initials as initialsOf } from '../../../utils/initials';
+import { User, Users } from 'lucide-react';
 import { resolveMediaUrl } from '../../../utils/media';
-
-// Initials sit on one of these, picked from the name, so a person keeps the same colour everywhere
-const TONES = [
-  'from-[#7964a6] to-[#4b376e]', // purple
-  'from-[#cf8490] to-[#9b4e5a]', // rose
-  'from-[#e1a34b] to-[#a75a13]', // amber
-  'from-[#5c91c9] to-[#36618d]', // blue
-  'from-[#51a676] to-[#27714a]', // green
-  'from-[#8995a8] to-[#586477]', // slate
-];
-
-export function toneFor(name: string): string {
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
-  return TONES[Math.abs(hash) % TONES.length];
-}
+import { avatarTone } from '../../../utils/avatarTone';
 
 interface AvatarProps {
   src?: string | null;
@@ -26,6 +12,7 @@ interface AvatarProps {
   online?: boolean;
   className?: string;
   showRing?: boolean; // Purple ring for active/selected state
+  group?: boolean; // a group chat: the two-person icon
 }
 
 const Avatar: React.FC<AvatarProps> = ({ 
@@ -34,18 +21,15 @@ const Avatar: React.FC<AvatarProps> = ({
   size = 'md', 
   online = false, 
   className = '',
-  showRing = false 
+  showRing = false,
+  group = false,
 }) => {
-  // Fall back to initials if the photo can't load (e.g. its link expired)
+  // Fall back to the icon if the photo can't load (e.g. its link expired)
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  // Initials are drawn here (no third-party avatar service sees people's names)
-  const initials = initialsOf(alt); // emoji and Indian scripts stay whole
   const photo = !failed ? resolveMediaUrl(src) : null;
-
-  const textSizes: Record<string, string> = {
-    xs: 'text-[10px]', sm: 'text-xs', md: 'text-sm', lg: 'text-base', xl: 'text-xl', '2xl': 'text-2xl', '3xl': 'text-3xl',
-  };
+  const tone = avatarTone(alt);
+  const Icon = group ? Users : User;
 
   const sizes: Record<string, string> = {
     xs: 'w-6 h-6',
@@ -78,9 +62,10 @@ const Avatar: React.FC<AvatarProps> = ({
         <span
           role="img"
           aria-label={alt}
-          className={`${sizes[size]} ${textSizes[size]} rounded-full bg-gradient-to-br ${toneFor(alt)} text-white font-bold tracking-tight flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
+          style={{ backgroundColor: tone.bg, color: tone.fg }}
+          className={`${sizes[size]} rounded-full flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
         >
-          {initials}
+          <Icon className="w-[48%] h-[48%]" strokeWidth={1.9} aria-hidden />
         </span>
       )}
       

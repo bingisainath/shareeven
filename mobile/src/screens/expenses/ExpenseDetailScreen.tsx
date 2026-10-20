@@ -1,10 +1,10 @@
 // src/screens/expenses/ExpenseDetailScreen.tsx
 import React, { useCallback, useEffect, useState } from 'react';
-import { firstCharacter } from '../../utils/initials';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
 import { Button } from '../../components/common/ui';
+import Avatar from '../../components/common/Avatar';
 import { Expense, expenseService, HistoryEntry, Receipt } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
 import { mediaUrl } from '../../config';
@@ -54,13 +54,9 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const myShare = expense.shares.find((s) => s.user_id === me.id)?.amount_minor || 0;
   const myPaid = expense.payers.find((p) => p.user_id === me.id)?.amount_minor || 0;
   const net = myPaid - myShare;
-  const initials = (id: string) => {
-    if (id === me.id) return 'You';
-    const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
-    return (words.length > 1 ? firstCharacter(words[0]) + firstCharacter(words[1]) : firstCharacter(words[0] || '?')).toUpperCase();
-  };
+  const person = (id: string) => (id === me.id ? me : members.find((m) => m.id === id));
 
-  // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.
+  // One calm purple: a photo or person icon per person, thin lines between people, your own row lightly tinted.
   // On a receipt split, tapping someone shows the items their share is made of.
   const personRow = (userId: string, minor: number, options: { label?: string; breakdown?: boolean; last?: boolean } = {}) => {
     const lines = options.breakdown && receipt ? shareLines(receipt, userId, minor) : null;
@@ -76,9 +72,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
           accessibilityState={lines ? { expanded: isOpen } : undefined}
           style={({ pressed }) => [styles.line, pressed && styles.pressed]}
         >
-          <View style={[styles.badge, mine && styles.badgeMine]}>
-            <Text style={[styles.badgeText, mine && styles.badgeTextMine]}>{initials(userId)}</Text>
-          </View>
+          <Avatar uri={person(userId)?.avatar} name={memberName(person(userId))} size={32} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.lineName, mine && styles.lineNameMine]} numberOfLines={1}>
               {nameOf(userId)}{options.label ? <Text style={styles.lineLabel}> {options.label}</Text> : null}
@@ -208,10 +202,6 @@ const styles = StyleSheet.create({
   mine: { backgroundColor: colors.primary50 },
   line: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingVertical: space(2.5), paddingHorizontal: space(3) },
   pressed: { backgroundColor: colors.primary100 },
-  badge: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary100, alignItems: 'center', justifyContent: 'center' },
-  badgeMine: { backgroundColor: colors.primary600 },
-  badgeText: { fontSize: 11, fontWeight: '700', color: colors.primary700 },
-  badgeTextMine: { color: colors.white },
   lineName: { fontSize: 15, fontWeight: '500', color: colors.muted900 },
   lineNameMine: { fontWeight: '700', color: colors.primary800 },
   lineSub: { fontSize: 12, color: colors.muted500, marginTop: 1 },

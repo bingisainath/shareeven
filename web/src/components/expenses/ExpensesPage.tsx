@@ -144,7 +144,7 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
                   c.id === selectedId ? 'bg-primary-50' : 'hover:bg-primary-50/60'
                 }`}
               >
-                <Avatar src={c.avatar} alt={c.name} size="lg" />
+                <Avatar src={c.avatar} alt={c.name} size="lg" group={c.isGroup} />
                 <span className="min-w-0">
                   <span className="block font-bold text-muted-900 truncate">{c.name}</span>
                   <span className="block text-xs text-muted-500 truncate">

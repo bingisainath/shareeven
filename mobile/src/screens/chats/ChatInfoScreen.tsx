@@ -164,11 +164,11 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
         <View style={styles.hero}>
           {isGroup && isAdmin ? (
             <Pressable onPress={changePhoto} accessibilityLabel="Change group photo">
-              <Avatar uri={details.avatar_url} name={title} size={88} />
+              <Avatar uri={details.avatar_url} name={title} size={88} group />
               <View style={styles.camera}>{busyPhoto ? <ActivityIndicator size="small" color={colors.white} /> : <Camera size={16} color={colors.white} />}</View>
             </Pressable>
           ) : (
-            <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} />
+            <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} group={isGroup} />
           )}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{isGroup ? `Group · ${details.members.length} members` : `@${other?.username}`}</Text>

@@ -61,7 +61,7 @@ const ForwardDialog: React.FC<Props> = ({ message, onSend, onClose }) => {
             return (
               <li key={c.id}>
                 <button type="button" onClick={() => toggle(c.id)} aria-pressed={on} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted-50 text-left">
-                  <Avatar src={c.avatar} alt={c.name} size="md" />
+                  <Avatar src={c.avatar} alt={c.name} size="md" group={c.isGroup} />
                   <span className="flex-1 min-w-0 truncate text-sm text-muted-900">{c.name}</span>
                   <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${on ? 'bg-primary-700 border-primary-700 text-white' : 'border-muted-300'}`}>
                     {on && <Check className="w-3 h-3" />}

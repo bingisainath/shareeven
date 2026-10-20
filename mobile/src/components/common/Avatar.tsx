@@ -1,32 +1,34 @@
 // src/components/Avatar.tsx
+// A profile photo, or with no photo a person icon (a group icon for groups) on a soft pastel colour.
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { User, Users } from 'lucide-react-native';
 import { mediaUrl } from '../../config';
 import { colors } from '../../theme';
-import Gradient, { toneFor } from './Gradient';
-import { initials } from '../../utils/initials';
-
-export { initials }; // emoji and Indian scripts stay whole (utils/initials.ts)
+import { avatarTone } from '../../utils/avatarTone';
 
 interface Props {
   uri?: string | null;
   name?: string | null;
   size?: number;
   online?: boolean;
+  /** A group chat: the two-person icon. */
+  group?: boolean;
 }
 
-const Avatar: React.FC<Props> = ({ uri, name, size = 44, online }) => {
+const Avatar: React.FC<Props> = ({ uri, name, size = 44, online, group }) => {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [uri]);
   const source = !failed ? mediaUrl(uri) : undefined;
+  const tone = avatarTone(name);
+  const Icon = group ? Users : User;
   return (
-    <View style={{ width: size, height: size }} accessibilityLabel={name || 'Avatar'}>
+    <View style={{ width: size, height: size }} accessibilityLabel={name || (group ? 'Group' : 'Avatar')}>
       {source ? (
         <Image source={{ uri: source }} style={[styles.round, { width: size, height: size, borderRadius: size / 2 }]} onError={() => setFailed(true)} />
       ) : (
-        <View style={[styles.round, styles.fallback, { width: size, height: size, borderRadius: size / 2 }]}>
-          <Gradient from={toneFor(name || '?')[0]} to={toneFor(name || '?')[1]} />
-          <Text style={[styles.initials, { fontSize: size * 0.36 }]}>{initials(name)}</Text>
+        <View style={[styles.round, styles.fallback, { width: size, height: size, borderRadius: size / 2, backgroundColor: tone.bg }]}>
+          <Icon size={Math.round(size * (group ? 0.5 : 0.48))} color={tone.fg} strokeWidth={1.9} />
         </View>
       )}
       {online && <View style={[styles.dot, { width: size * 0.28, height: size * 0.28, borderRadius: size * 0.14 }]} />}
@@ -36,8 +38,7 @@ const Avatar: React.FC<Props> = ({ uri, name, size = 44, online }) => {
 
 const styles = StyleSheet.create({
   round: { overflow: 'hidden' },
-  fallback: { backgroundColor: colors.primary500, alignItems: 'center', justifyContent: 'center' },
-  initials: { color: colors.white, fontWeight: '700' },
+  fallback: { alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', right: 0, bottom: 0, backgroundColor: colors.success600, borderWidth: 2, borderColor: colors.white },
 });
 

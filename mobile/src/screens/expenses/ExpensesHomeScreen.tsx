@@ -239,7 +239,7 @@ const ExpensesHomeScreen: React.FC = () => {
           const entries = Object.entries(nets[item.id] || {}).filter(([, v]) => v !== 0);
           return (
             <Pressable onPress={() => navigation.navigate('ChatExpenses', { conversationId: item.id })} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.primary50 }]}>
-              <Avatar uri={item.avatar} name={item.name} size={46} />
+              <Avatar uri={item.avatar} name={item.name} size={46} group={item.isGroup} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                 <Text style={styles.kind}>{item.isGroup ? `${item.members?.length || 0} members` : 'Direct expenses'}</Text>
