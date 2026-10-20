@@ -256,7 +256,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
           <div className="flex-1 overflow-y-auto">
             {/* Photo + name */}
             <div className="flex flex-col items-center px-6 pt-6 pb-4 border-b border-muted-100">
-              <Avatar src={avatar} alt={title || 'Group'} size="2xl" />
+              <Avatar src={avatar} alt={title || 'Group'} size="2xl" group={isGroup} />
               {isGroup && isAdmin && (
                 <div className="flex gap-2 mt-3">
                   <button

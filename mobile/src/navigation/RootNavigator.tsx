@@ -29,6 +29,7 @@ import SettingsScreen from '../screens/settings/SettingsScreen';
 import AccountScreen from '../screens/settings/AccountScreen';
 import BackupScreen from '../screens/settings/BackupScreen';
 import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
+import PlanScreen from '../screens/settings/PlanScreen';
 import HelpScreen from '../screens/settings/HelpScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
@@ -210,6 +211,11 @@ const RootNavigator: React.FC = () => {
             name="Backup"
             component={BackupScreen}
             options={{ title: 'Encryption & backup' }}
+          />
+          <AppStack.Screen
+            name="Plan"
+            component={PlanScreen}
+            options={{ title: 'ShareEven Pro' }}
           />
           <AppStack.Screen
             name="ReceiptScanning"

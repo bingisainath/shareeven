@@ -4,6 +4,10 @@
 // X25519 (key agreement), Ed25519 (signatures), HKDF-SHA256 / HMAC-SHA256 (key derivation) and
 // ChaCha20-Poly1305 (encryption): constant-time and fast in plain JavaScript, so the same code runs
 // in browsers and React Native.
+//
+// The heavy operations can be swapped for native ones (useFastCrypto): the phone's JavaScript engine
+// has no JIT, so a photo's encryption and hashing take seconds in JavaScript and milliseconds
+// natively. Same algorithms, same bytes: a native backend only replaces how they're computed.
 
 import { ed25519, x25519 } from '@noble/curves/ed25519';
 import { chacha20poly1305 } from '@noble/ciphers/chacha';
@@ -16,6 +20,46 @@ import { fromBase64, fromUtf8, toBase64, utf8 } from '../e2e';
 export { ed25519, sha256, hkdf, concatBytes, randomBytes, fromBase64, toBase64, utf8, fromUtf8 };
 
 export const ZERO32 = new Uint8Array(32);
+
+/** Streaming SHA-256 (media files are hashed piece by piece). */
+export interface Sha256Stream {
+  update(data: Uint8Array): void;
+  digest(): Uint8Array;
+}
+
+/** Native versions of the heavy operations. Each one must give exactly the bytes the code below does. */
+export interface FastCrypto {
+  /** ChaCha20-Poly1305 (RFC 8439, 12-byte nonce), ciphertext || 16-byte tag; decrypt throws if it doesn't verify. */
+  aeadEncrypt?: (key: Uint8Array, nonce: Uint8Array, plaintext: Uint8Array, ad: Uint8Array) => Uint8Array;
+  aeadDecrypt?: (key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array, ad: Uint8Array) => Uint8Array;
+  sha256?: (data: Uint8Array) => Uint8Array;
+  sha256Stream?: () => Sha256Stream;
+  /** X25519 shared secret; may throw on a bad public key. */
+  x25519?: (priv: Uint8Array, pub: Uint8Array) => Uint8Array;
+  /** Ed25519 with a 32-byte seed as the private key, 64-byte signatures. */
+  sign?: (priv: Uint8Array, message: Uint8Array) => Uint8Array;
+  verify?: (pub: Uint8Array, message: Uint8Array, signature: Uint8Array) => boolean;
+}
+
+let fast: FastCrypto = {};
+
+/** Use native operations where given (mobile: v2-platform/fastCrypto.ts); the rest stay in JavaScript. */
+export function useFastCrypto(backend: FastCrypto): void {
+  fast = { ...backend };
+}
+
+/** Which operations run natively now (for logs and tests). */
+export const fastCryptoInUse = (): string[] => Object.keys(fast).filter((k) => !!fast[k as keyof FastCrypto]);
+
+/** One-shot SHA-256 (safety numbers, link codes). */
+export const hashSha256 = (data: Uint8Array): Uint8Array => (fast.sha256 ? fast.sha256(data) : sha256(data));
+
+/** Streaming SHA-256 (media files). */
+export function sha256Stream(): Sha256Stream {
+  if (fast.sha256Stream) return fast.sha256Stream();
+  const h = sha256.create();
+  return { update: (d) => { h.update(d); }, digest: () => h.digest() };
+}
 
 export const u32be = (n: number): Uint8Array => {
   const b = new Uint8Array(4);
@@ -67,7 +111,7 @@ export function dh(priv: Uint8Array, pub: Uint8Array): Uint8Array {
   if (pub.length !== 32) throw new CryptoError('invalid_key', 'Bad public key');
   let out: Uint8Array;
   try {
-    out = x25519.getSharedSecret(priv, pub);
+    out = fast.x25519 ? fast.x25519(priv, pub) : x25519.getSharedSecret(priv, pub);
   } catch {
     throw new CryptoError('invalid_key', 'Bad public key');
   }
@@ -75,11 +119,11 @@ export function dh(priv: Uint8Array, pub: Uint8Array): Uint8Array {
   return out;
 }
 
-export const sign = (priv: Uint8Array, message: Uint8Array): Uint8Array => ed25519.sign(message, priv);
+export const sign = (priv: Uint8Array, message: Uint8Array): Uint8Array => (fast.sign ? fast.sign(priv, message) : ed25519.sign(message, priv));
 
 export function verify(pub: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
   try {
-    return ed25519.verify(signature, message, pub);
+    return fast.verify ? fast.verify(pub, message, signature) : ed25519.verify(signature, message, pub);
   } catch {
     return false;
   }
@@ -104,13 +148,13 @@ export function messageKeys(mk: Uint8Array): { key: Uint8Array; nonce: Uint8Arra
 
 export function seal(mk: Uint8Array, plaintext: Uint8Array, ad: Uint8Array): Uint8Array {
   const k = messageKeys(mk);
-  return chacha20poly1305(k.key, k.nonce, ad).encrypt(plaintext);
+  return aeadEncrypt(k.key, k.nonce, plaintext, ad);
 }
 
 export function open(mk: Uint8Array, ciphertext: Uint8Array, ad: Uint8Array): Uint8Array {
   const k = messageKeys(mk);
   try {
-    return chacha20poly1305(k.key, k.nonce, ad).decrypt(ciphertext);
+    return aeadDecrypt(k.key, k.nonce, ciphertext, ad);
   } catch {
     throw new CryptoError('decrypt_failed', 'Message could not be decrypted');
   }
@@ -118,12 +162,12 @@ export function open(mk: Uint8Array, ciphertext: Uint8Array, ad: Uint8Array): Ui
 
 /** ChaCha20-Poly1305 with an explicit key and nonce (keys used once: link grants, media chunks). */
 export function aeadEncrypt(key: Uint8Array, nonce: Uint8Array, plaintext: Uint8Array, ad: Uint8Array): Uint8Array {
-  return chacha20poly1305(key, nonce, ad).encrypt(plaintext);
+  return fast.aeadEncrypt ? fast.aeadEncrypt(key, nonce, plaintext, ad) : chacha20poly1305(key, nonce, ad).encrypt(plaintext);
 }
 
 export function aeadDecrypt(key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array, ad: Uint8Array): Uint8Array {
   try {
-    return chacha20poly1305(key, nonce, ad).decrypt(ciphertext);
+    return fast.aeadDecrypt ? fast.aeadDecrypt(key, nonce, ciphertext, ad) : chacha20poly1305(key, nonce, ad).decrypt(ciphertext);
   } catch {
     throw new CryptoError('decrypt_failed', 'Could not be decrypted');
   }

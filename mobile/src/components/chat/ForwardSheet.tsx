@@ -38,7 +38,7 @@ const ForwardSheet: React.FC<{ visible: boolean; onClose: () => void; onSend: (i
             const on = picked.includes(item.id);
             return (
               <Pressable onPress={() => toggle(item.id)} style={styles.row} accessibilityState={{ selected: on }}>
-                <Avatar uri={item.avatar} name={item.name} size={40} />
+                <Avatar uri={item.avatar} name={item.name} size={40} group={item.isGroup} />
                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                 <View style={[styles.check, on && styles.checkOn]}>{on && <Check size={14} color={colors.white} />}</View>
               </Pressable>

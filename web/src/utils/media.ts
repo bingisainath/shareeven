@@ -228,3 +228,31 @@ export const formatDuration = (seconds?: number | null): string => {
   const total = Math.round(seconds);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 };
+
+/**
+ * The tiny preview sent inside an encrypted photo's pointer (MediaPointer.blur): a ~24 px JPEG
+ * (about 1 KB, base64), shown blurred while the real photo downloads and decrypts.
+ * undefined when it can't be made (the photo still sends).
+ */
+export async function blurPreview(file: Blob): Promise<string | undefined> {
+  if (typeof createImageBitmap === 'undefined') return undefined;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = 24 / Math.max(bitmap.width, bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return undefined;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const b64 = canvas.toDataURL('image/jpeg', 0.4).split(',')[1];
+    return b64 && b64.length <= 3000 ? b64 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export const blurUri = (b64?: string) => (b64 ? `data:image/jpeg;base64,${b64}` : undefined);

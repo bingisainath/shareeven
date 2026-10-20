@@ -473,7 +473,7 @@ const GroupsPage: React.FC<{
               className="card p-4 flex items-center gap-3.5 text-left hover:border-primary-200 hover:bg-primary-50/40 transition-colors"
               onClick={() => onOpenGroup(group.id)}
             >
-              <Avatar src={group.avatar} alt={group.name} size="xl" />
+              <Avatar src={group.avatar} alt={group.name} size="xl" group />
               <span className="flex-1 min-w-0">
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-bold text-muted-900 truncate">{group.name}</span>

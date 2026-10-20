@@ -166,7 +166,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
         <button type="button" onClick={onBack} className="md:hidden p-2 -ml-2 rounded-lg text-muted-600 hover:bg-muted-100" aria-label="Back">
           <ArrowLeft size={20} />
         </button>
-        <Avatar src={chatAvatar} alt={chatName} size="lg" />
+        <Avatar src={chatAvatar} alt={chatName} size="lg" group={isGroup} />
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary-500">{isGroup ? 'Group expenses' : 'Direct expenses'}</p>
           <h2 className="font-display text-xl font-semibold text-muted-900 truncate">{chatName}</h2>

@@ -1,30 +1,33 @@
 // src/pages/Admin/index.tsx
 // The admin console (/admin), app admins only: overview numbers, people (find, suspend, sign out,
-// delete), reports, and the log of what admins did. The server checks admin rights on every call;
+// delete), reports, receipt AI, the Pro plan and its payment providers, and the log of what admins did. The server checks admin rights on every call;
 // hiding this page is only for convenience.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Trash2, Undo2, Users, X } from 'lucide-react';
+import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Sparkles, Trash2, Undo2, User, Users, X } from 'lucide-react';
 import { useAuth } from '../../app/AuthProvider';
 import { BrandMark } from '../../components/organisms/AuthLayout';
 import { ReportsReview } from '../../components/organisms/SafetySettings';
 import DailyBars from '../../components/admin/DailyBars';
 import { AdminAISettings } from '../../components/expenses/ExpenseSettingsSections';
+import AdminBilling from '../../components/admin/AdminBilling';
 import { adminService } from '../../services/admin.service';
 import { REPORT_REASONS, safetyService } from '../../services/safety.service';
 import type { ReportReason } from '../../services/safety.service';
 import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview, ScanAllowance } from '../../services/admin.service';
 import { parseApiError } from '../../utils/apiError';
+import { avatarTone } from '../../utils/avatarTone';
 
-type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'activity';
+type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'billing' | 'activity';
 
 const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'people', label: 'People', icon: Users },
   { id: 'reports', label: 'Reports', icon: Flag },
   { id: 'receipt-ai', label: 'Receipt AI', icon: ScanLine },
+  { id: 'billing', label: 'Pro & payments', icon: Sparkles },
   { id: 'activity', label: 'Admin log', icon: History },
 ];
 
@@ -36,7 +39,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_user: 'Viewed account', suspend: 'Suspended', unsuspend: 'Lifted suspension', sign_out: 'Signed out everywhere',
   delete_account: 'Deleted account', resolve_report: 'Resolved report', warn: 'Warned',
   ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed the app scan limit',
-  scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans',
+  scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans', plan_changed: 'Changed the Pro plan',
 };
 
 const AdminPage: React.FC = () => {
@@ -86,6 +89,7 @@ const AdminPage: React.FC = () => {
         {tab === 'people' && <PeopleTab openUser={openUser} setOpenUser={setOpenUser} />}
         {tab === 'reports' && <ReportsReview onOpenUser={showUser} />}
         {tab === 'receipt-ai' && <AdminAISettings />}
+        {tab === 'billing' && <AdminBilling />}
         {tab === 'activity' && <ActivityTab onOpenUser={showUser} />}
       </main>
     </div>
@@ -262,8 +266,8 @@ const PeopleTab: React.FC<{ openUser: string | null; setOpenUser: (id: string | 
 const Avatar: React.FC<{ a: AccountSummary; size?: number }> = ({ a, size = 36 }) => (
   a.avatar
     ? <img src={a.avatar} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />
-    : <span className="rounded-full bg-primary-100 text-primary-700 font-bold grid place-items-center flex-shrink-0" style={{ width: size, height: size }}>
-        {nameOf(a).charAt(0).toUpperCase()}
+    : <span className="rounded-full grid place-items-center flex-shrink-0" style={{ width: size, height: size, backgroundColor: avatarTone(nameOf(a)).bg, color: avatarTone(nameOf(a)).fg }}>
+        <User style={{ width: size * 0.48, height: size * 0.48 }} strokeWidth={1.9} aria-hidden />
       </span>
 );
 
@@ -591,7 +595,8 @@ const ActivityTab: React.FC<{ onOpenUser: (id: string) => void }> = ({ onOpenUse
                       <button type="button" onClick={() => onOpenUser(x.target!.id)} className="font-semibold text-primary-700 hover:underline">@{x.target.username || 'deleted'}</button>
                     ) : '—'}
                   </td>
-                  <td className="py-2 text-muted-600">{x.reason || ''}</td>
+                  <td className="py-2 text-muted-600">{x.reason || (x.action === 'plan_changed' && Array.isArray(x.details?.changed)
+                    ? `Changed: ${(x.details!.changed as string[]).map((k) => k.replace(/_/g, ' ')).join(', ') || 'nothing'}` : '')}</td>
                 </tr>
               ))}
             </tbody>

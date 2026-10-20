@@ -7,6 +7,7 @@ import { UNREADABLE_TEXT } from '../../crypto/messages';
 import type { Message } from '../../api/chat';
 import { colors, radius, space } from '../../theme';
 import { clockTime, formatDuration, formatSize } from '../../utils/time';
+import { blurUri } from '../../utils/blurPreview';
 import VoiceNote from './VoiceNote';
 import Avatar from '../common/Avatar';
 
@@ -107,6 +108,9 @@ const MessageBubble: React.FC<Props> = ({
                       style={[styles.image, box]}
                       resizeMode="cover"
                     />
+                  ) : m.mediaBlur && !(m.mediaType === 'image' && image.failed) ? (
+                    // the tiny preview from inside the message, blurred, until the photo is decrypted
+                    <Image source={{ uri: blurUri(m.mediaBlur)! }} style={[styles.image, box]} resizeMode="cover" blurRadius={12} />
                   ) : (
                     <View style={[styles.image, m.mediaType === 'video' && styles.videoPlaceholder, styles.pending, box]}>
                       {m.mediaType === 'image' && (image.failed

@@ -79,6 +79,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         alt={name}
         size="lg"
         online={isOnline}
+        group={isGroup}
       />
 
       {/* Content */}

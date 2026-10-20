@@ -7,7 +7,7 @@
 import api from '../../utils/axios';
 import { mediaService } from '../../services/media.service';
 import { wsService } from '../../services/websocket.service';
-import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf } from '../../utils/media';
+import { blurPreview, captureVideoPoster, compressImage, measureMedia, mediaTypeOf } from '../../utils/media';
 import type { UploadQuality } from '../../utils/media';
 import type { Message, ReplyPreview } from '../../redux/slices/chatSlice';
 import { encryptMedia, isV2Marker, LocalMessage, MediaPointer, MessageBody } from '../v2';
@@ -38,6 +38,9 @@ export function warmChat(chat: ChatInfo): void {
   v2For(chat).catch(() => undefined);
 }
 
+// The preview is whatever the sender put there: only a short base64 string is shown
+const safeBlur = (b: unknown): string | undefined => (typeof b === 'string' && b.length <= 4000 && /^[A-Za-z0-9+/]+=*$/.test(b) ? b : undefined);
+
 export function fromLocal(m: LocalMessage): Partial<Message> {
   const p = m.media?.[0];
   return {
@@ -49,7 +52,7 @@ export function fromLocal(m: LocalMessage): Partial<Message> {
     editedAt: m.editedAt ? new Date(m.editedAt).toISOString() : undefined,
     ...(p ? {
       mediaType: typeOf(p), mediaKey: p.key, mediaMime: p.mime, mediaFilename: p.name, mediaSize: p.size,
-      mediaWidth: p.w, mediaHeight: p.h, mediaDuration: p.dur, mediaV2: { sha256: p.sha256, size: p.size },
+      mediaWidth: p.w, mediaHeight: p.h, mediaDuration: p.dur, mediaV2: { sha256: p.sha256, size: p.size }, mediaBlur: safeBlur(p.blur),
       ...(p.thumb ? { thumbKey: p.thumb.key, thumbV2: { sha256: p.thumb.sha256, size: p.thumb.size } } : {}),
     } : {}),
   };
@@ -188,6 +191,8 @@ export async function sendMediaV2(
     kind === 'image' || kind === 'video' ? measureMedia(file) : Promise.resolve(null),
     kind === 'video' ? captureVideoPoster(file) : Promise.resolve(null),
   ]);
+  const blurFrom = kind === 'image' ? prepared : poster;
+  const blur = blurFrom ? await blurPreview(blurFrom) : undefined;
   const main = await uploadV2(prepared, kind, options.onProgress, options.signal);
   rememberDecrypted(main.url, main.key, prepared);
   let thumb: MediaPointer['thumb'];
@@ -198,7 +203,7 @@ export async function sendMediaV2(
   }
   const pointer: MediaPointer = {
     url: main.url, key: main.key, sha256: main.sha256, size: main.size, mime: prepared.type || 'application/octet-stream', type: kind,
-    name: (prepared as File).name || file.name, w: dims?.width, h: dims?.height, dur: options.duration, thumb,
+    name: (prepared as File).name || file.name, w: dims?.width, h: dims?.height, dur: options.duration, thumb, blur,
   };
   const body: MessageBody = { v: 2, id: clientId, conv: chat.conversationId, ts: Date.now(), kind: 'media', text: caption, media: [pointer], ...(options.replyTo ? { replyTo: options.replyTo.id } : {}) };
   const envelopes = await runtime.messenger.encrypt(chat.conversationId, chat.isGroup, members, body);
@@ -224,7 +229,7 @@ export function pointerOf(m: Message): MediaPointer | undefined {
   if (m.e2eVersion !== 2 || !m.mediaKey || !m.mediaV2 || !m.mediaUrl) return undefined;
   return {
     url: m.mediaUrl.split('?')[0].replace(/^https?:\/\/[^/]+/, ''), key: m.mediaKey, sha256: m.mediaV2.sha256, size: m.mediaV2.size,
-    mime: m.mediaMime || 'application/octet-stream', type: m.mediaType, name: m.mediaFilename, w: m.mediaWidth, h: m.mediaHeight, dur: m.mediaDuration,
+    mime: m.mediaMime || 'application/octet-stream', type: m.mediaType, name: m.mediaFilename, w: m.mediaWidth, h: m.mediaHeight, dur: m.mediaDuration, blur: m.mediaBlur,
     ...(m.thumbKey && m.thumbV2 && m.mediaThumbnail ? { thumb: { url: m.mediaThumbnail.split('?')[0].replace(/^https?:\/\/[^/]+/, ''), key: m.thumbKey, sha256: m.thumbV2.sha256, size: m.thumbV2.size, mime: 'image/jpeg' } } : {}),
   };
 }

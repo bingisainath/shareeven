@@ -48,6 +48,7 @@ export interface Message {
   localId?: string; // v2: the sender's message id (key in the device's local database)
   mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
   thumbV2?: { sha256: string; size: number };
+  mediaBlur?: string; // v2: tiny base64 JPEG shown blurred until the photo is decrypted
   e2eUnverified?: boolean; // signed with a key that isn't the sender's
   senderSignKey?: string;
   mediaKey?: string; // the encrypted file's key (base64)

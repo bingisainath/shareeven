@@ -2,10 +2,10 @@
 // One expense: who paid, who owes, the receipt photos, and the full history of changes.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { firstCharacter } from '../../utils/initials';
 import { ChevronDown, Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import CategoryIcon from './CategoryIcon';
+import { Avatar } from '../atoms';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
 import type { Expense, HistoryEntry, Receipt } from '../../services/expense.service';
@@ -57,13 +57,9 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
 
   const nameOf = (id: string) =>
     id === currentUserId ? 'You' : displayName(members.find((m) => m.id === id));
-  const initials = (id: string) => {
-    if (id === currentUserId) return 'You';
-    const words = nameOf(id).trim().split(/\s+/).filter(Boolean);
-    return (words.length > 1 ? firstCharacter(words[0]) + firstCharacter(words[1]) : firstCharacter(words[0] || '?')).toUpperCase();
-  };
+  const person = (id: string) => members.find((m) => m.id === id);
 
-  // One calm purple: a badge per person, thin lines between people, your own row lightly tinted.
+  // One calm purple: a photo or person icon per person, thin lines between people, your own row lightly tinted.
   // On a receipt split, tapping someone shows the items their share is made of.
   const personRow = (userId: string, minor: number, options: { label?: string; breakdown?: boolean } = {}) => {
     const lines = options.breakdown && receipt ? shareLines(receipt, userId, minor) : null;
@@ -72,9 +68,7 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
     const mine = userId === currentUserId;
     const row = (
       <>
-        <span className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-[11px] font-semibold ${mine ? 'bg-primary-600 text-white' : 'bg-primary-100 text-primary-700'}`} aria-hidden>
-          {initials(userId)}
-        </span>
+        <Avatar src={person(userId)?.avatar} alt={displayName(person(userId))} size="sm" />
         <span className="flex-1 min-w-0 text-left">
           <span className={`block truncate ${mine ? 'font-semibold text-primary-800' : 'font-medium text-muted-900'}`}>
             {nameOf(userId)}{options.label && <span className="font-normal text-muted-500"> {options.label}</span>}

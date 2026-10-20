@@ -5,7 +5,7 @@ import Icon from '../../atoms/Icon';
 import { Download, Flag, Forward, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
 import VoiceNotePlayer from '../VoiceNotePlayer';
 import { formatMessageTime } from '../../../utils/dateFormat';
-import { formatFileSize, mediaBoxStyle } from '../../../utils/media';
+import { blurUri, formatFileSize, mediaBoxStyle } from '../../../utils/media';
 import { downloadDecrypted, useMediaSrc } from '../../../crypto/media';
 import { UNREADABLE_TEXT } from '../../../crypto/messages';
 import { toast } from 'react-toastify';
@@ -43,6 +43,7 @@ interface MessageBubbleProps {
   e2e?: 'encrypted' | 'unreadable' | 'pending';
   mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
   thumbV2?: { sha256: string; size: number };
+  mediaBlur?: string;
   e2eUnverified?: boolean;
   uploadProgress?: number; // 0-100 while the attachment uploads
   uploadFailed?: boolean;
@@ -93,6 +94,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   e2eUnverified,
   mediaV2,
   thumbV2,
+  mediaBlur,
   uploadProgress,
   uploadFailed,
   onCancelUpload,
@@ -267,6 +269,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                           onError={mediaKey ? undefined : onMediaError}
                           className={box ? 'w-full h-full object-cover' : 'max-w-full sm:max-w-xs max-h-64 object-cover'}
                         />
+                      ) : mediaBlur && !media.failed ? (
+                        // the tiny preview from inside the message, blurred, until the photo is decrypted
+                        <img src={blurUri(mediaBlur)} alt="" className={`${box ? 'w-full h-full' : 'w-56 h-40'} object-cover blur-md scale-110`} />
                       ) : (
                         <span className={`flex items-center justify-center text-xs ${box ? 'w-full h-full' : 'w-56 h-40'} ${isSent ? 'text-white/70' : 'text-muted-400'}`}>
                           {media.failed ? "Couldn't decrypt this photo" : <Lock className="w-5 h-5 animate-pulse" />}
@@ -283,7 +288,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                       title="Play video"
                       aria-label="Play video"
                     >
-                      {poster.src && <img src={poster.src} alt="" className="w-full h-full object-cover opacity-90" />}
+                      {poster.src ? <img src={poster.src} alt="" className="w-full h-full object-cover opacity-90" />
+                        : mediaBlur && <img src={blurUri(mediaBlur)} alt="" className="w-full h-full object-cover blur-md scale-110 opacity-90" />}
                       <span className="absolute inset-0 flex items-center justify-center">
                         <span className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center text-white">
                           {playVideo && !media.failed ? <Lock className="w-5 h-5 animate-pulse" /> : <Play className="w-6 h-6 fill-white" />}

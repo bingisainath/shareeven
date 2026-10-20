@@ -26,6 +26,7 @@ from app.models.receipt import Receipt
 from app.models.safety import REPORT_REASONS, AccountNotice, Report, UserBlock
 from app.models.user import User
 from app.services import admin as admin_service
+from app.services import billing
 from app.services import media_storage
 from app.services import notices as notice_service
 from app.services.receipt_ai import pipeline
@@ -275,6 +276,27 @@ async def give_extra_scans(user_id: uuid.UUID, body: ExtraScansRequest, admin: U
     await db.commit()
     return {"success": True, "message": f"Gave {body.count} extra scan{'s' if body.count != 1 else ''} this month",
             "data": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)}}
+
+
+# ------------------------------------------------------------------ Pro & payments
+
+@router.get("/billing")
+async def get_billing(admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """The Pro plan as the apps see it: prices, features, scans and payment providers."""
+    return {"success": True, "data": (await billing.get_plan(db)).model_dump()}
+
+
+@router.put("/billing")
+async def save_billing(body: billing.PlanConfig, admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """Change the Pro plan. The Plan page on web and phone shows it the next time it's opened."""
+    before = (await billing.get_plan(db)).model_dump()
+    await billing.save_plan(db, body)
+    after = body.model_dump()
+    changed = sorted(k for k in after if after[k] != before.get(k))
+    await admin_service.log(db, admin, "plan_changed", None, None, changed=changed, before={k: before.get(k) for k in changed},
+                            after={k: after[k] for k in changed})
+    await db.commit()
+    return {"success": True, "message": "Pro plan saved", "data": after}
 
 
 # ------------------------------------------------------------------ action log

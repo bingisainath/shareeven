@@ -8,7 +8,7 @@
 // Numbered chunks with a final flag (the STREAM construction) can't be reordered or cut short; any
 // chunk decrypts on its own, so videos can seek. Sizes are padded (Padmé) so they leak little.
 
-import { aeadDecrypt, aeadEncrypt, b64, CryptoError, eq, hkdf, randomBytes, sha256, u64be, unb64, utf8, ZERO32 } from './primitives';
+import { aeadDecrypt, aeadEncrypt, b64, CryptoError, eq, hkdf, randomBytes, sha256, sha256Stream, u64be, unb64, utf8, ZERO32 } from './primitives';
 
 export const MEDIA_CHUNK = 64 * 1024;
 export const MEDIA_HEADER = 16;
@@ -83,7 +83,7 @@ export class MediaEncryptor {
   private buffer = new Uint8Array(0);
   private index = 0;
   private plainSize = 0;
-  private hash = sha256.create();
+  private hash = sha256Stream();
 
   start(): Uint8Array {
     this.hash.update(this.header);
@@ -140,7 +140,7 @@ export class MediaDecryptor {
   private buffer = new Uint8Array(0);
   private index = 0;
   private written = 0;
-  private hash = sha256.create();
+  private hash = sha256Stream();
 
   constructor(private pointer: { key: string; sha256: string; size: number }) {
     this.key = contentKey(unb64(pointer.key));

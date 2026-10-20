@@ -3,13 +3,15 @@
 // the AI model; there's nothing to configure.
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { AppStackParams } from '../../navigation/types';
 import { ReceiptText, Sparkles } from 'lucide-react-native';
 import { SettingsCard, SettingsNote, SettingsPage } from '../../components/settings/SettingsUI';
 import { expenseService } from '../../api/expenses';
 import type { AISettings } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
-import { Banner } from '../../components/common/ui';
+import { Banner, Button } from '../../components/common/ui';
 import { colors } from '../../theme';
 
 const nextMonth = () => {
@@ -18,6 +20,7 @@ const nextMonth = () => {
 };
 
 const ReceiptScanningScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
   const [usage, setUsage] = useState<AISettings['usage'] | null>(null);
   const [error, setError] = useState('');
 
@@ -50,6 +53,10 @@ const ReceiptScanningScreen: React.FC = () => {
           </>
         )}
       </SettingsCard>
+      {!!usage && left <= 3 && (
+        <Button title="Get more scans with Pro" variant="secondary" icon={Sparkles} style={styles.note}
+          onPress={() => navigation.navigate('Plan')} />
+      )}
       <SettingsNote icon={Sparkles} style={styles.note} title="How it works"
         text="In a chat, tap Add expense and scan a receipt. ShareEven reads the items and prices so you can split them; you check everything before saving. Each receipt counts as one scan; scans that fail don't count." />
     </SettingsPage>
