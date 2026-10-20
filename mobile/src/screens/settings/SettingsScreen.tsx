@@ -113,7 +113,7 @@ const SettingsScreen: React.FC = () => {
         </Pressable>
 
         <SettingsCard>
-          <SettingsRow first icon={Sparkles} label="ShareEven Pro" hint="More receipt scans; plans and payment"
+          <SettingsRow first icon={Sparkles} label="ShareEven Pro" hint="More receipt scans; your plan"
             badge={pro ? { text: 'Pro', tone: 'good' } : { text: 'Free', tone: 'off' }} onPress={() => navigation.navigate('Plan')} />
           <SettingsRow icon={KeyRound} label="Encryption & backup" hint="Recovery key and secure backups" onPress={() => navigation.navigate('Backup')} />
           <SettingsRow icon={MonitorSmartphone} label="Linked devices" hint="Link a phone or browser, see where you're signed in" onPress={() => navigation.navigate('Encryption')} />

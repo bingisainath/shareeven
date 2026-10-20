@@ -84,6 +84,8 @@ def test_production_warnings():
     from types import SimpleNamespace
     from app.main import production_warnings
     loose = SimpleNamespace(ENV="production", REDIS_URL="redis://redis:6379/0", CORS_ORIGINS=["http://localhost:3000", "https://shareeven.com"])
-    assert production_warnings(loose) == ["REDIS_URL has no password", "CORS_ORIGINS still allows localhost"]
-    tight = SimpleNamespace(ENV="production", REDIS_URL="redis://:secret@redis:6379/0", CORS_ORIGINS=["https://shareeven.com"])
+    assert production_warnings(loose) == ["REDIS_URL has no password", "CORS_ORIGINS still allows localhost",
+                                          "RAZORPAY_* aren't set: nobody can pay for Pro, even with payments turned on"]
+    tight = SimpleNamespace(ENV="production", REDIS_URL="redis://:secret@redis:6379/0", CORS_ORIGINS=["https://shareeven.com"],
+                            RAZORPAY_KEY_ID="rzp_live_abc")
     assert production_warnings(tight) == []

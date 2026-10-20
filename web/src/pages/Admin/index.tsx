@@ -19,6 +19,7 @@ import type { ReportReason } from '../../services/safety.service';
 import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview, ScanAllowance } from '../../services/admin.service';
 import { parseApiError } from '../../utils/apiError';
 import { avatarTone } from '../../utils/avatarTone';
+import { formatPrice } from '../../utils/plans';
 
 type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'billing' | 'activity';
 
@@ -40,6 +41,7 @@ const ACTION_LABELS: Record<string, string> = {
   delete_account: 'Deleted account', resolve_report: 'Resolved report', warn: 'Warned',
   ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed the app scan limit',
   scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans', plan_changed: 'Changed the Pro plan',
+  pro_granted: 'Gave Pro', pro_ended: 'Ended Pro',
 };
 
 const AdminPage: React.FC = () => {
@@ -194,6 +196,7 @@ const AccountBadges: React.FC<{ a: AccountSummary }> = ({ a }) => (
   <>
     {a.is_app_admin && <Badge tone="primary">Admin</Badge>}
     {a.suspension && <Badge tone="danger">Suspended</Badge>}
+    {a.pro_until && <Badge tone="primary">Pro</Badge>}
     {a.reports_against > 0 && <Badge tone="warning">Reported {a.reports_against}×</Badge>}
   </>
 );
@@ -430,6 +433,8 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
 
           <ScanControls account={a} onChanged={(scans) => { setA({ ...a, scans }); load(); }} />
 
+          <ProControls account={a} onChanged={load} />
+
           <Section title={`Devices (${a.devices.length})`}>
             {a.devices.length === 0 ? <Empty text="No linked devices." /> : a.devices.map((d, i) => (
               <li key={i} className="flex justify-between gap-3"><span className="truncate">{d.name}</span><span className="text-muted-500 flex-shrink-0">{when(d.last_seen_at)}</span></li>
@@ -543,6 +548,82 @@ const ScanControls: React.FC<{ account: AccountDetails; onChanged: (scans: ScanA
           </div>
         </div>
       )}
+    </section>
+  );
+};
+
+const PAYMENT_STATUS: Record<string, string> = {
+  paid: 'Paid', failed: 'Failed', mismatch: 'Wrong amount (Pro not given)', refunded: 'Refunded', partially_refunded: 'Partly refunded',
+};
+
+/** Pro: until when, what they paid, and giving or ending it (with a reason, logged). Refunds are done in Razorpay. */
+const ProControls: React.FC<{ account: AccountDetails; onChanged: () => void }> = ({ account, onChanged }) => {
+  const p = account.pro;
+  const [mode, setMode] = useState<'grant' | 'end' | null>(null);
+  const [days, setDays] = useState('30');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const n = Number(days);
+  const ready = reason.trim().length >= 3 && (mode === 'end' || (Number.isInteger(n) && n >= 1 && n <= 3660));
+
+  const save = async () => {
+    if (!mode) return;
+    setBusy(true);
+    try {
+      await adminService.setPro(account.id, mode, reason.trim(), mode === 'grant' ? n : undefined);
+      toast.success(mode === 'grant' ? `Gave Pro for ${n} day${n === 1 ? '' : 's'}` : 'Pro ended');
+      setMode(null);
+      onChanged();
+    } catch (e) {
+      toast.error(parseApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-500">ShareEven Pro</h3>
+      <p className="text-sm text-muted-900">{p.plan === 'pro' ? <>Pro until <b>{when(p.until)}</b></> : 'Free'}</p>
+      {!mode && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" onClick={() => { setMode('grant'); setReason(''); }} className="h-8 px-2.5 rounded-lg text-xs font-semibold border border-primary-100 bg-primary-50 text-primary-700 hover:bg-primary-100">{p.plan === 'pro' ? 'Add Pro days' : 'Give Pro'}</button>
+          {p.plan === 'pro' && <button type="button" onClick={() => { setMode('end'); setReason(''); }} className="h-8 px-2.5 rounded-lg text-xs font-semibold border border-accent-100 bg-accent-50 text-accent-700 hover:bg-accent-100">End Pro now</button>}
+        </div>
+      )}
+      {mode && (
+        <div className="mt-2 p-3 rounded-xl border border-muted-200 space-y-2">
+          {mode === 'grant' ? (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-700">Days of Pro</span>
+              <input type="number" min={1} max={3660} value={days} onChange={(e) => setDays(e.target.value)}
+                className="w-24 h-8 px-2 rounded-lg border border-muted-200 text-sm tabular-nums outline-none focus:border-primary-500" />
+            </label>
+          ) : (
+            <p className="text-xs text-muted-500">Pro ends now. This doesn't refund anything: refund in the Razorpay dashboard (that also takes back the days it paid for).</p>
+          )}
+          {mode === 'grant' && <p className="text-xs text-muted-500">Added after their current end date, if they have Pro.</p>}
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (kept in the admin log)" aria-label="Reason" maxLength={500}
+            className="w-full h-8 px-2.5 rounded-lg border border-muted-200 text-sm outline-none focus:border-primary-500" />
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setMode(null)} className="h-8 px-2.5 rounded-lg text-xs font-semibold text-muted-600 hover:bg-muted-100">Cancel</button>
+            <button type="button" disabled={!ready || busy} onClick={save}
+              className={`h-8 px-3 rounded-lg text-xs font-bold text-white disabled:opacity-50 ${mode === 'end' ? 'bg-accent-600 hover:bg-accent-700' : 'bg-primary-700 hover:bg-primary-800'}`}>
+              {busy ? 'Saving…' : mode === 'end' ? 'End Pro' : 'Give Pro'}</button>
+          </div>
+        </div>
+      )}
+      <ul className="mt-2 space-y-1.5 text-sm text-muted-800">
+        {p.payments.length === 0 ? <Empty text="No payments." /> : p.payments.map((x) => (
+          <li key={x.id}>
+            <span className="font-medium tabular-nums">{formatPrice(x.amount, x.currency)}</span> · {x.billing === 'yearly' ? 'a year' : 'a month'} · {when(x.paid_at || x.created_at)} ·{' '}
+            <span className={x.status === 'paid' ? 'text-success-600' : x.status === 'failed' || x.status === 'mismatch' ? 'text-accent-700' : 'text-muted-500'}>
+              {PAYMENT_STATUS[x.status] || x.status}{x.refunded > 0 && x.status === 'partially_refunded' ? ` (${formatPrice(x.refunded, x.currency)})` : ''}
+            </span>
+            <span className="block text-xs text-muted-500 break-all">{x.payment_id || x.order_id}{x.error ? ` · ${x.error}` : ''}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 };

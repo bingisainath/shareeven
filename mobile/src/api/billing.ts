@@ -1,39 +1,20 @@
-// src/api/billing.ts (same flow as web/src/services/billing.service.ts)
-// Paying for ShareEven Pro. The Plan page only calls the two functions below, so wiring a real
-// payment provider in means filling them in; nothing on the page changes.
+// src/api/billing.ts
+// ShareEven Pro on the phone: what it gives and whether this person has it. The phone doesn't sell
+// Pro. Google Play (and the App Store) require their own billing for digital features bought in an
+// app, and forbid pointing people to pay elsewhere. So there is no buy button, price or link to the
+// website here. People who buy on the web (web/src/services/billing.service.ts, Razorpay) get Pro
+// here too: the server decides it, and GET /billing/plan reports it.
 //
-// To wire up (planned):
-//   1. POST /billing/checkout { billing, currency, provider } -> the server creates the order with
-//      Razorpay (or the card provider) for the price admins set (GET /billing/plan) and returns what the
-//      provider's checkout needs ({ provider, order_id, key_id, ... } or a hosted checkout URL).
-//   2. Open that checkout (Razorpay's SDK, or the hosted page in the browser).
-//   3. The server learns of the payment from the provider's webhook (checked with its signature)
-//      and turns Pro on; GET /billing/plan then reports it. The app never decides that itself.
+// Selling in the app later means Play Billing, or Razorpay under Google's India alternative
+// billing. Decide that first: both change store compliance and fees.
 import { api } from './client';
 import { DEFAULT_PRO } from '../utils/plans';
-import type { Billing, ProPlan, Provider } from '../utils/plans';
-
-export interface CheckoutRequest {
-  billing: Billing;
-  currency: string;
-  provider: Provider;
-}
-
-export type CheckoutResult =
-  | { status: 'paid' }
-  | { status: 'cancelled' }
-  | { status: 'unavailable'; message: string };
+import type { ProPlan } from '../utils/plans';
 
 export interface CurrentPlan {
   plan: 'free' | 'pro';
-  /** Pro: the day it ends (ISO date). */
+  /** Pro: when it ends (ISO date and time). */
   until?: string;
-}
-
-/** Start paying for Pro. Resolves when the checkout is closed. */
-export async function startCheckout(_request: CheckoutRequest): Promise<CheckoutResult> {
-  // Not wired to a payment provider yet (whether or not admins have turned payments on)
-  return { status: 'unavailable', message: "Payments aren't open yet. Pro will be available soon." };
 }
 
 export interface PlanInfo {
@@ -47,6 +28,6 @@ export async function loadPlan(): Promise<PlanInfo> {
     const r = await api.get('/billing/plan');
     return r.data.data as PlanInfo;
   } catch {
-    return { pro: DEFAULT_PRO, current: { plan: 'free' } }; // offline: the built-in plan, and the server decides at checkout
+    return { pro: DEFAULT_PRO, current: { plan: 'free' } }; // offline: the built-in plan
   }
 }

@@ -53,6 +53,11 @@ const PlanSettings: React.FC = () => {
       if (result.status === 'paid') {
         setInfo(await loadPlan());
         toast.success("You're on Pro. Thank you for supporting ShareEven.");
+      } else if (result.status === 'pending') {
+        toast.info(result.message);
+        setTimeout(() => loadPlan().then(setInfo), 15000);
+      } else if (result.status === 'failed') {
+        toast.error(result.message);
       } else if (result.status === 'unavailable') {
         toast.info(result.message);
       }

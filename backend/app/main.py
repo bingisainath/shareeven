@@ -30,6 +30,11 @@ def production_problems(s=settings) -> list[str]:
         problems.append("RECEIPT_OCR_DEBUG_DIR is set (it writes what receipts say to disk unencrypted)")
     if _password(getattr(s, "DATABASE_URL", "")) in DEV_PASSWORDS:
         problems.append("DATABASE_URL uses a development password")
+    razorpay = [getattr(s, k, "") for k in ("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET")]
+    if any(razorpay) and not all(razorpay):
+        problems.append("Set all three of RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET, or none")
+    if razorpay[0].startswith("rzp_test_"):
+        problems.append("RAZORPAY_KEY_ID is a test key (rzp_test_...)")
     return problems
 
 
@@ -55,6 +60,8 @@ def production_warnings(s=settings) -> list[str]:
         warnings.append("REDIS_URL has no password")
     if any("localhost" in o or "127.0.0.1" in o for o in getattr(s, "CORS_ORIGINS", [])):
         warnings.append("CORS_ORIGINS still allows localhost")
+    if not getattr(s, "RAZORPAY_KEY_ID", ""):
+        warnings.append("RAZORPAY_* aren't set: nobody can pay for Pro, even with payments turned on")
     return warnings
 
 

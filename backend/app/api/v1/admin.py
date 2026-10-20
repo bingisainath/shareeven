@@ -22,6 +22,7 @@ from app.models.conversation_member import ConversationMember
 from app.models.e2e_v2 import E2EDevice
 from app.models.expense import Expense
 from app.models.message import Message
+from app.models.payment import Payment
 from app.models.receipt import Receipt
 from app.models.safety import REPORT_REASONS, AccountNotice, Report, UserBlock
 from app.models.user import User
@@ -29,6 +30,7 @@ from app.services import admin as admin_service
 from app.services import billing
 from app.services import media_storage
 from app.services import notices as notice_service
+from app.services import payments
 from app.services.receipt_ai import pipeline
 from app.websocket.routes import publish_users
 
@@ -55,6 +57,11 @@ class ExtraScansRequest(ReasonRequest):
     count: int = Field(..., ge=1, le=1000)
 
 
+class ProRequest(ReasonRequest):
+    action: Literal["grant", "end"]
+    days: Optional[int] = Field(None, ge=1, le=3660)  # grant: added after the current end, if any
+
+
 def _iso(value) -> Optional[str]:
     return value.isoformat() if value else None
 
@@ -72,6 +79,7 @@ def _summary(u: User, last_active=None, reports: int = 0) -> dict:
         "created_at": _iso(u.created_at), "last_active": _iso(last_active),
         "is_app_admin": u.is_app_admin, "deleted": u.deleted_at is not None,
         "suspension": _suspension(u), "reports_against": reports,
+        "pro_until": _iso(u.pro_until) if payments.is_pro(u) else None,
     }
 
 
@@ -156,6 +164,11 @@ async def user_details(user_id: uuid.UUID, admin: User = Depends(get_app_admin),
         .order_by(AdminAction.created_at.desc()).limit(20)
     )).all()
 
+    paid = (await db.execute(
+        select(Payment).where(Payment.user_id == user.id, Payment.status != "created")
+        .order_by(Payment.created_at.desc()).limit(20)
+    )).scalars().all()
+
     await admin_service.log(db, admin, "view_user", user.id)
     await db.commit()
 
@@ -174,6 +187,7 @@ async def user_details(user_id: uuid.UUID, admin: User = Depends(get_app_admin),
             "warnings": await count(select(AccountNotice.id).where(AccountNotice.user_id == user.id, AccountNotice.kind == "warning")),
         },
         "scans": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)},
+        "pro": {**payments.current_plan(user), "payments": [payments.view(p) for p in paid]},
         "devices": [{"name": d.name, "added_at": _iso(d.created_at), "last_seen_at": _iso(d.last_seen_at)} for d in devices],
         "reports": [{"id": str(r.id), "reason": r.reason, "details": r.details, "status": r.status,
                      "created_at": _iso(r.created_at)} for r in reports],
@@ -279,6 +293,29 @@ async def give_extra_scans(user_id: uuid.UUID, body: ExtraScansRequest, admin: U
 
 
 # ------------------------------------------------------------------ Pro & payments
+
+@router.post("/users/{user_id}/pro")
+async def set_pro(user_id: uuid.UUID, body: ProRequest, admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """Give someone Pro for some days (added after their current end), or end it now. Payments aren't refunded here."""
+    user = await _scan_target(db, user_id)
+    before = _iso(user.pro_until)
+    if body.action == "grant":
+        if not body.days:
+            raise HTTPException(status_code=400, detail="Say for how many days")
+        payments.admin_grant(user, body.days)
+        await admin_service.log(db, admin, "pro_granted", user.id, body.reason.strip(), days=body.days, before=before, after=_iso(user.pro_until))
+        message = f"Gave Pro for {body.days} day{'s' if body.days != 1 else ''}"
+    else:
+        if not payments.is_pro(user):
+            raise HTTPException(status_code=400, detail="They don't have Pro")
+        payments.admin_end(user)
+        await admin_service.log(db, admin, "pro_ended", user.id, body.reason.strip(), before=before)
+        message = "Pro ended"
+    await db.commit()
+    return {"success": True, "message": message, "data": {
+        **payments.current_plan(user), "scans": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)},
+    }}
+
 
 @router.get("/billing")
 async def get_billing(admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):

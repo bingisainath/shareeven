@@ -18,7 +18,7 @@ from app.models.conversation_member import ConversationMember
 from sqlalchemy import select, update
 
 from app.config.settings import settings
-from app.services import media_storage, push
+from app.services import media_storage, notices, payments, push
 from app.services import safety
 
 logger = logging.getLogger("app.worker")
@@ -27,6 +27,8 @@ logger = logging.getLogger("app.worker")
 # retried by the same one): it crashed mid-save, or the save failed.
 STALE_AFTER_MS = 60_000
 RECLAIM_EVERY_SECONDS = 60
+# "Your Pro ends in 7 days / tomorrow" (each sent once per end date; several workers don't double up)
+PRO_REMINDERS_EVERY_SECONDS = 3600
 # After this many tries an entry goes to the dead-letter stream instead of being retried forever
 MAX_DELIVERIES = 5
 # Consumer names with nothing pending that haven't been seen for a day are removed
@@ -66,12 +68,16 @@ class MessageWorker:
         logger.info("Listening for messages as %s", self.consumer_name)
         loop = asyncio.get_running_loop()
         next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+        next_reminders = loop.time()
 
         while self.running:
             try:
                 if loop.time() >= next_reclaim:
                     await self.reclaim_stale()
                     next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+                if loop.time() >= next_reminders:
+                    next_reminders = loop.time() + PRO_REMINDERS_EVERY_SECONDS
+                    await self.send_pro_reminders()
 
                 results = await self.streams.read_messages(
                     consumer_name=self.consumer_name,
@@ -108,6 +114,20 @@ class MessageWorker:
             logger.warning("Retrying %d message(s) left unacknowledged for over %ds", len(stale), STALE_AFTER_MS // 1000)
         for msg_id, fields in stale:
             await self.handle(msg_id, fields)
+
+    async def send_pro_reminders(self) -> int:
+        """A notice (Settings → Notices) and a push for everyone whose Pro ends within 7 days, then 1."""
+        try:
+            async with async_session_maker() as db:
+                due = await payments.due_reminders(db)
+                await db.commit()
+                if due:
+                    await notices.deliver(db, due)
+                    logger.info("Sent %d Pro reminder(s)", len(due))
+                return len(due)
+        except Exception:
+            logger.exception("Sending Pro reminders failed; trying again in an hour")
+            return 0
 
     async def handle(self, msg_id: str, fields: dict):
         """Process one entry. On failure it stays pending and is retried by the sweep, up to MAX_DELIVERIES."""
