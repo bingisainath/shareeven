@@ -63,6 +63,9 @@ const PlanSettings: React.FC = () => {
     }
   };
 
+  // Never show the built-in prices while the real ones load
+  if (!info) return <p className="py-10 text-center text-sm text-muted-500" role="status">Loading plans…</p>;
+
   return (
     <div className="space-y-[18px]">
       <section className="flex items-center gap-4 p-[18px] sm:p-6 rounded-[17px] bg-primary-700 text-white">

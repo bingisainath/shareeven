@@ -7,11 +7,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { CreditCard, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { adminBilling } from '../../services/billing.service';
+import type { AdminProPlan } from '../../services/billing.service';
 import { formatPrice, perMonth } from '../../utils/plans';
-import type { ProPlan } from '../../utils/plans';
 import { parseApiError } from '../../utils/apiError';
 
-interface PriceRow { currency: string; monthly: string; yearly: string }
+interface PriceRow { currency: string; monthly: string; yearly: string; enabled: boolean }
 interface Form {
   payments_enabled: boolean;
   scans_per_month: string;
@@ -28,10 +28,10 @@ const minor = (text: string) => {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : NaN;
 };
 
-const toForm = (p: ProPlan): Form => ({
+const toForm = (p: AdminProPlan): Form => ({
   payments_enabled: p.payments_enabled,
   scans_per_month: String(p.scans_per_month),
-  prices: Object.entries(p.prices).map(([currency, v]) => ({ currency, monthly: major(v.monthly), yearly: major(v.yearly) })),
+  prices: Object.entries(p.prices).map(([currency, v]) => ({ currency, monthly: major(v.monthly), yearly: major(v.yearly), enabled: v.enabled !== false })),
   features: p.features.join('\n'),
   razorpay: p.providers.razorpay,
   card: p.providers.card,
@@ -39,11 +39,11 @@ const toForm = (p: ProPlan): Form => ({
 });
 
 /** The form as a plan, or the first thing wrong with it (the server checks again). */
-function toPlan(f: Form): ProPlan | string {
+function toPlan(f: Form): AdminProPlan | string {
   const scans = Number(f.scans_per_month);
   if (!Number.isInteger(scans) || scans < 1) return 'Scans a month must be a whole number, at least 1';
   if (!f.prices.length) return 'Add at least one price';
-  const prices: ProPlan['prices'] = {};
+  const prices: AdminProPlan['prices'] = {};
   for (const row of f.prices) {
     const code = row.currency.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(code)) return `"${row.currency}" isn't a currency code (3 letters, e.g. INR)`;
@@ -52,8 +52,9 @@ function toPlan(f: Form): ProPlan | string {
     const yearly = minor(row.yearly);
     if (Number.isNaN(monthly) || Number.isNaN(yearly)) return `${code}: enter both prices, more than 0`;
     if (yearly > monthly * 12) return `${code}: a year costs more than twelve months`;
-    prices[code] = { monthly, yearly };
+    prices[code] = { monthly, yearly, enabled: row.enabled };
   }
+  if (!f.prices.some((r) => r.enabled)) return 'Turn on at least one currency';
   const features = f.features.split('\n').map((x) => x.trim()).filter(Boolean);
   if (!features.length) return 'Add at least one feature';
   if (features.length > 8) return 'Up to 8 features';
@@ -79,7 +80,7 @@ const Toggle: React.FC<{ on: boolean; onChange: (on: boolean) => void; label: st
 );
 
 const AdminBilling: React.FC = () => {
-  const [saved, setSaved] = useState<ProPlan | null>(null);
+  const [saved, setSaved] = useState<AdminProPlan | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -146,12 +147,13 @@ const AdminBilling: React.FC = () => {
       <section className="card p-4 sm:p-6 space-y-3">
         <div>
           <h3 className="text-base font-semibold text-muted-900">Prices</h3>
-          <p className="text-sm text-muted-500">Including taxes. People pay in their display currency when it's listed here, otherwise INR in India and EUR elsewhere.</p>
+          <p className="text-sm text-muted-500">Including taxes. People pay in their display currency when it's on here; otherwise INR in India, and EUR, then USD, elsewhere. A switched-off currency keeps its prices but isn't offered.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
+          <table className="w-full text-sm min-w-[580px]">
             <thead>
               <tr className="text-left text-xs text-muted-500">
+                <th className="py-2 pr-3 font-semibold">On</th>
                 <th className="py-2 pr-3 font-semibold">Currency</th>
                 <th className="py-2 pr-3 font-semibold">A month</th>
                 <th className="py-2 pr-3 font-semibold">A year</th>
@@ -166,7 +168,10 @@ const AdminBilling: React.FC = () => {
                 const code = row.currency.trim().toUpperCase();
                 const saving = m > 0 && y > 0 ? Math.round((1 - y / (m * 12)) * 100) : null;
                 return (
-                  <tr key={i} className="border-t border-muted-100">
+                  <tr key={i} className={`border-t border-muted-100 ${row.enabled ? '' : 'opacity-50'}`}>
+                    <td className="py-2 pr-3">
+                      <Toggle on={row.enabled} onChange={(on) => setRow(i, { enabled: on })} label={`Offer ${code || 'this currency'}`} />
+                    </td>
                     <td className="py-2 pr-3">
                       <input value={row.currency} maxLength={3} onChange={(e) => setRow(i, { currency: e.target.value.toUpperCase() })}
                         aria-label="Currency code" className={`${input} w-20 uppercase font-mono`} />
@@ -196,7 +201,7 @@ const AdminBilling: React.FC = () => {
             </tbody>
           </table>
         </div>
-        <button type="button" onClick={() => set({ prices: [...form.prices, { currency: '', monthly: '', yearly: '' }] })}
+        <button type="button" onClick={() => set({ prices: [...form.prices, { currency: '', monthly: '', yearly: '', enabled: true }] })}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary-700 hover:underline">
           <Plus className="w-4 h-4" /> Add a currency
         </button>

@@ -19,6 +19,12 @@ describe('plans', () => {
 
   it('uses a currency admins priced when the usual one has no price', () => {
     expect(planCurrency(only({ USD: { monthly: 300, yearly: 3000 } }), undefined, 'en-IN')).toBe('USD');
+    // Rupees and dollars only: India pays in rupees, everyone else in dollars (never rupees)
+    const inrUsd = only({ INR: { monthly: 9900, yearly: 99900 }, USD: { monthly: 299, yearly: 2999 } });
+    expect(planCurrency(inrUsd, undefined, 'en-IN')).toBe('INR');
+    expect(planCurrency(inrUsd, 'EUR', 'de-DE')).toBe('USD');
+    expect(planCurrency(inrUsd, undefined, 'en-GB')).toBe('USD');
+    expect(planCurrency(only({ INR: { monthly: 9900, yearly: 99900 } }), undefined, 'en-US')).toBe('INR'); // the only price there is
   });
 
   it('offers the providers admins turned on, Razorpay only in its currencies', () => {

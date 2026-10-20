@@ -51,8 +51,13 @@ export async function loadPlan(): Promise<PlanInfo> {
   }
 }
 
+/** What admins edit: the plan, plus currencies that are switched off (the apps never get those). */
+export interface AdminProPlan extends Omit<ProPlan, 'prices'> {
+  prices: Record<string, Record<Billing, number> & { enabled: boolean }>;
+}
+
 /** Admin console → Pro & payments. */
 export const adminBilling = {
-  get: () => api.get('/api/v1/admin/billing').then((r) => r.data.data as ProPlan),
-  save: (plan: ProPlan) => api.put('/api/v1/admin/billing', plan).then((r) => r.data.data as ProPlan),
+  get: () => api.get('/api/v1/admin/billing').then((r) => r.data.data as AdminProPlan),
+  save: (plan: AdminProPlan) => api.put('/api/v1/admin/billing', plan).then((r) => r.data.data as AdminProPlan),
 };

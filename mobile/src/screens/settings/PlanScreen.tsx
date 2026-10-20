@@ -3,7 +3,7 @@
 // the button that starts it. Prices, features and providers are set by admins (GET /billing/plan);
 // the payment itself goes through api/billing.ts (the only place a payment provider is wired in). Same page as the web app's.
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Check, CreditCard, Lock, Sparkles, Zap } from 'lucide-react-native';
 import { SettingsLabel, SettingsPage } from '../../components/settings/SettingsUI';
@@ -65,6 +65,11 @@ const PlanScreen: React.FC = () => {
       setBusy(false);
     }
   };
+
+  // Never show the built-in prices while the real ones load
+  if (!info) {
+    return <SettingsPage><ActivityIndicator color={colors.primary700} style={styles.loading} accessibilityLabel="Loading plans" /></SettingsPage>;
+  }
 
   return (
     <SettingsPage>
@@ -163,6 +168,7 @@ const Feature: React.FC<{ text: string; strong?: boolean }> = ({ text, strong })
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  loading: { marginTop: 48 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, borderRadius: 17, backgroundColor: colors.primary700 },
   heroIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
   heroTitle: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3, color: colors.white },

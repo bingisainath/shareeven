@@ -44,14 +44,15 @@ export const freeFeatures = (scansPerMonth: number | null) => [
 ];
 
 /**
- * The currency to charge in: the person's display currency when Pro has a price in it, else INR in
- * India, else EUR, else whichever currency Pro has a price in.
+ * The currency to charge in: the person's display currency when Pro has a price in it; else INR in
+ * India; elsewhere EUR, then USD, then any other priced currency (rupees only as a last resort).
  */
 export function planCurrency(plan: ProPlan, displayCurrency?: string | null, locale?: string): string {
   const c = displayCurrency?.toUpperCase();
   if (c && plan.prices[c]) return c;
-  const local = /[-_]IN\b/i.test(locale || '') ? 'INR' : 'EUR';
-  return plan.prices[local] ? local : Object.keys(plan.prices)[0];
+  const priced = Object.keys(plan.prices);
+  const order = /[-_]IN\b/i.test(locale || '') ? ['INR', 'USD', 'EUR'] : ['EUR', 'USD', ...priced.filter((x) => x !== 'INR')];
+  return order.find((x) => plan.prices[x]) || priced[0];
 }
 
 export interface ProviderOption {

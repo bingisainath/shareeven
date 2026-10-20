@@ -19,6 +19,7 @@ PLAN_KEY = "pro_plan"
 class Price(BaseModel):
     monthly: int = Field(..., ge=1, le=100_000_000)  # minor units (paise, cents)
     yearly: int = Field(..., ge=1, le=1_000_000_000)
+    enabled: bool = True  # off: kept for later, but the apps don't offer it
 
 
 class Providers(BaseModel):
@@ -64,6 +65,8 @@ class PlanConfig(BaseModel):
         for code, p in self.prices.items():
             if p.yearly > p.monthly * 12:
                 raise ValueError(f"{code}: a year costs more than twelve months")
+        if not any(p.enabled for p in self.prices.values()):
+            raise ValueError("Turn on at least one currency")
         if not (self.providers.razorpay or self.providers.card):
             raise ValueError("Turn on at least one payment provider")
         return self
@@ -117,7 +120,8 @@ async def save_plan(db: AsyncSession, plan: PlanConfig) -> None:
 
 
 def public_plan(plan: PlanConfig) -> dict:
-    """What the apps get: features with {scans} filled in."""
+    """What the apps get: only the currencies that are on (without the flag), features with {scans} filled in."""
     data = plan.model_dump()
+    data["prices"] = {code: {"monthly": p.monthly, "yearly": p.yearly} for code, p in plan.prices.items() if p.enabled}
     data["features"] = [f.replace("{scans}", str(plan.scans_per_month)) for f in plan.features]
     return data
