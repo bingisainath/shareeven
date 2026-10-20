@@ -131,6 +131,11 @@ export async function startCheckout(request: CheckoutRequest): Promise<CheckoutR
   }
 }
 
+/** Pro as admins set it, for the website's pricing section (no sign-in needed). */
+export async function loadPublicPlan(): Promise<ProPlan> {
+  return (await api.get('/api/v1/billing/public-plan')).data.data as ProPlan;
+}
+
 export interface PlanInfo {
   pro: ProPlan;
   current: CurrentPlan;

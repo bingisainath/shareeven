@@ -48,6 +48,12 @@ async def plan(current_user: User = Depends(get_current_user), db: AsyncSession 
                                       "current": payments.current_plan(current_user)}}
 
 
+@router.get("/public-plan")
+async def public_plan(db: AsyncSession = Depends(get_db)):
+    """The same Pro plan for the website's pricing section, without signing in (prices are public anyway)."""
+    return {"success": True, "data": billing.public_plan(await billing.get_plan(db))}
+
+
 @router.post("/checkout")
 async def checkout(body: CheckoutRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """A Razorpay order for the plan's price in this currency; the app opens checkout.js with it."""

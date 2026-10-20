@@ -1129,6 +1129,12 @@
   font-size: 31px;
   color: var(--purple);
 }
+.se-landing .price-note {
+  margin: -6px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .se-landing .price span {
   color: var(--muted);
   font-size: 12px;
