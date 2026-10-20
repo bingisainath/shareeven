@@ -9,6 +9,8 @@
 
 export const OPERATOR = {
   name: 'Sainath Bingi',
+  // How the law sees ShareEven: run by one person, not a company. Change it here if that changes.
+  form: 'as a sole proprietor',
   address: '36/21 Rajiv Gruha Kalpa, Jagathgirigutta, Hyderabad 500037, Telangana, India',
   country: 'India', // governing law and courts
   grievanceOfficer: 'Sainath Bingi', // India's DPDP Act asks for one
@@ -143,7 +145,7 @@ const contact: InfoPage = {
     { heading: 'Privacy and your data', body: [`Requests about your personal data, or complaints for our grievance officer (${OPERATOR.grievanceOfficer}): ${CONTACT.privacy}`] },
     { heading: 'Abuse', body: ['To report a person, message or group, use Report in the app so we get the details we need. If it\'s urgent, also write to ' + CONTACT.support + '.'] },
     { heading: 'Security', body: [`Found a security problem? Please tell us privately at ${CONTACT.security} before sharing it publicly.`] },
-    { heading: 'Postal address', body: [`${OPERATOR.name}, ${OPERATOR.address}`] },
+    { heading: 'Postal address', body: [`ShareEven (run by ${OPERATOR.name}), ${OPERATOR.address}`] },
   ],
 };
 
@@ -152,7 +154,7 @@ const terms: InfoPage = {
   label: 'Terms of Service',
   title: 'Terms of Service',
   dated: true,
-  intro: `These terms are an agreement between you and ${OPERATOR.name} ("ShareEven", "we") for using the ShareEven apps and website. By creating an account you accept them.`,
+  intro: `These terms are an agreement between you and ShareEven ("we", "us") for using the ShareEven apps and website. ShareEven is run by ${OPERATOR.name} ${OPERATOR.form} in ${OPERATOR.country} (${OPERATOR.address}). By creating an account you accept them.`,
   sections: [
     {
       heading: '1. Who can use ShareEven',
@@ -173,7 +175,12 @@ const terms: InfoPage = {
     },
     {
       heading: '4. Expenses and payments',
-      body: ['ShareEven is a record-keeping tool. It doesn\'t hold, send or receive money, and isn\'t a bank or payment service. Balances are calculated from what members record; check them before paying. Payments you make through other apps (UPI, bank transfer, Revolut, PayPal) are between you and those services. Converted totals use daily exchange rates and are estimates.'],
+      body: [
+        'ShareEven is a record-keeping tool. It doesn\'t hold, send or receive money, and isn\'t a bank or payment service.',
+        'Members add expenses, splits and payments themselves, and whoever adds or changes one is responsible for getting it right. ShareEven doesn\'t check that an expense is real, that its amount or split is correct, or that a recorded payment was really made. Check an expense before you add it, and check your balances before you pay or settle up.',
+        'If members disagree about who owes what, that\'s between them. Each expense\'s history shows who added and changed it, and it can be edited or deleted in the chat. We can\'t settle disputes between members or move money for anyone.',
+        'Payments you make through other apps (UPI, bank transfer, Revolut, PayPal) are between you and those services. Converted totals use daily exchange rates and are estimates.',
+      ],
     },
     {
       heading: '5. Receipt scanning',
@@ -222,7 +229,7 @@ const privacy: InfoPage = {
   label: 'Privacy Policy',
   title: 'Privacy Policy',
   dated: true,
-  intro: `This policy explains what ShareEven collects, why, and what you can do about it. ${OPERATOR.name} (${OPERATOR.address}) is responsible for your data (the "data controller" or "data fiduciary").`,
+  intro: `This policy explains what ShareEven collects, why, and what you can do about it. ShareEven, run by ${OPERATOR.name} ${OPERATOR.form} (${OPERATOR.address}), is responsible for your data (the "data controller" or "data fiduciary").`,
   sections: [
     {
       heading: 'What we can\'t see',
