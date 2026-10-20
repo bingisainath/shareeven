@@ -18,6 +18,8 @@ import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
 import { NoticesSection } from '../../components/organisms/Notices';
+import PlanSettings from '../../components/organisms/PlanSettings';
+import { loadPlan } from '../../services/billing.service';
 import { useNotices } from '../../hooks/useNotices';
 import { expenseService } from '../../services/expense.service';
 import type { AISettings } from '../../services/expense.service';
@@ -47,6 +49,7 @@ const SECTIONS: Section[] = [
   { slug: 'account', icon: UserRound, label: 'Account', hint: 'Profile, username and payment details' }, // opened from the profile card
   { slug: 'backup', icon: KeyRound, label: 'Encryption & backup', hint: 'Recovery key and secure backups' },
   { slug: 'devices', icon: MonitorSmartphone, label: 'Linked devices', hint: "Link a phone or browser, see where you're signed in" },
+  { slug: 'plan', icon: Sparkles, label: 'ShareEven Pro', hint: 'More receipt scans; plans and payment' },
   { slug: 'receipts', icon: ReceiptText, label: 'Receipt scanning', hint: 'Your monthly scans' },
   { slug: 'discounts', icon: Store, label: 'Store discounts', hint: 'Your personal store offers' },
   { slug: 'blocked', icon: Ban, label: 'Blocked people', hint: "People who can't message you" },
@@ -172,6 +175,11 @@ const ReceiptsSection: React.FC = () => {
           </>
         )}
       </div>
+      {usage && left <= 3 && (
+        <Link to="/settings/plan" className="flex items-center justify-center gap-2 h-11 rounded-[13px] bg-primary-50 border border-primary-100 text-sm font-bold text-primary-700 hover:bg-primary-100 transition-colors">
+          <Sparkles className="w-4 h-4" /> Get more scans with Pro
+        </Link>
+      )}
       <Note icon={Sparkles} title="How it works"
         text="In a chat, tap Add expense and scan a receipt. ShareEven reads the items and prices so you can split them; you check everything before saving. Each receipt counts as one scan; scans that fail don't count." />
     </div>
@@ -257,10 +265,12 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
   const [scansLeft, setScansLeft] = useState<number | null>(null);
+  const [pro, setPro] = useState(false);
   const unreadNotices = useNotices().unread;
 
   useEffect(() => {
     if (section) return;
+    loadPlan().then((p) => setPro(p.current.plan === 'pro')).catch(() => undefined);
     expenseService.aiSettings()
       .then(({ usage }) => setScansLeft(Math.max(0, usage.monthly_limit - usage.scans_this_month)))
       .catch(() => setScansLeft(null));
@@ -286,6 +296,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
               </>
             )}
             {section === 'devices' && (<><EncryptionSettings /><SessionsSettings /></>)}
+            {section === 'plan' && <PlanSettings />}
             {section === 'receipts' && <ReceiptsSection />}
             {section === 'discounts' && <StoreDiscountSettings />}
             {section === 'blocked' && <BlockedPeopleSettings />}
@@ -298,6 +309,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
   }
 
   const badges: Record<string, Badge | undefined> = {
+    plan: pro ? { text: 'Pro', tone: 'good' } : { text: 'Free', tone: 'off' },
     notices: unreadNotices ? { text: `${unreadNotices} new`, tone: 'warn' } : undefined,
     receipts: scansLeft === null ? undefined : { text: `${scansLeft} scans left`, tone: scansLeft > 0 ? 'good' : 'warn' },
   };
@@ -322,6 +334,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
         <ProfileCard user={user} to="/settings/account" />
 
         <nav aria-label="Settings" className={`${card} mt-[18px] overflow-hidden`}>
+          {link('plan')}
           {link('backup')}
           {link('devices')}
           <NotificationsRow />

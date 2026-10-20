@@ -5,7 +5,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ban, Bell, ChevronRight, Coins, HelpCircle, Inbox, KeyRound, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Store } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, HelpCircle, Inbox, KeyRound, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Sparkles, Store } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
 import { SettingsCard, SettingsRow } from '../../components/settings/SettingsUI';
@@ -13,6 +13,7 @@ import { expenseService } from '../../api/expenses';
 import { enablePush, pushStatus } from '../../notifications/push';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
 import { authApi } from '../../api/auth';
+import { loadPlan } from '../../api/billing';
 import { errorMessage } from '../../api/client';
 import { logoutRisk } from '../../crypto/backupRuntime';
 import { useAuth } from '../../store/auth';
@@ -31,11 +32,13 @@ const SettingsScreen: React.FC = () => {
   const [push, setPush] = useState<PushState | null>(null);
   const [pickingCurrency, setPickingCurrency] = useState(false);
   const [scansLeft, setScansLeft] = useState<number | null>(null);
+  const [pro, setPro] = useState(false);
 
   // Re-check when the screen is shown and when coming back from the phone's settings
   useFocusEffect(useCallback(() => {
     const check = () => pushStatus().then(setPush);
     check();
+    loadPlan().then((p) => setPro(p.current.plan === 'pro')).catch(() => undefined);
     expenseService.aiSettings()
       .then(({ usage }) => setScansLeft(Math.max(0, usage.monthly_limit - usage.scans_this_month)))
       .catch(() => setScansLeft(null));
@@ -110,7 +113,9 @@ const SettingsScreen: React.FC = () => {
         </Pressable>
 
         <SettingsCard>
-          <SettingsRow first icon={KeyRound} label="Encryption & backup" hint="Recovery key and secure backups" onPress={() => navigation.navigate('Backup')} />
+          <SettingsRow first icon={Sparkles} label="ShareEven Pro" hint="More receipt scans; plans and payment"
+            badge={pro ? { text: 'Pro', tone: 'good' } : { text: 'Free', tone: 'off' }} onPress={() => navigation.navigate('Plan')} />
+          <SettingsRow icon={KeyRound} label="Encryption & backup" hint="Recovery key and secure backups" onPress={() => navigation.navigate('Backup')} />
           <SettingsRow icon={MonitorSmartphone} label="Linked devices" hint="Link a phone or browser, see where you're signed in" onPress={() => navigation.navigate('Encryption')} />
           <SettingsRow icon={Bell} label="Notifications"
             hint={push === 'unavailable' ? "Not set up in this build of the app" : 'Messages, expense reminders and new device requests'}
