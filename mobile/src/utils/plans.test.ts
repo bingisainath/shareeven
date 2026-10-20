@@ -1,4 +1,4 @@
-import { DEFAULT_PRO, formatPrice, perMonth, planCurrency, providersFor, yearlySaving } from './plans';
+import { DEFAULT_PRO, formatPrice, perMonth, planCurrency, providersFor, yearlySaving, CARD_PROVIDER_READY } from './plans';
 import type { ProPlan } from './plans';
 
 const only = (prices: ProPlan['prices'], providers?: Partial<ProPlan['providers']>): ProPlan =>
@@ -28,10 +28,15 @@ describe('plans', () => {
   });
 
   it('offers the providers admins turned on, Razorpay only in its currencies', () => {
-    expect(providersFor(DEFAULT_PRO, 'INR').map((p) => p.id)).toEqual(['razorpay', 'card']);
-    expect(providersFor(DEFAULT_PRO, 'EUR').map((p) => p.id)).toEqual(['card']);
-    expect(providersFor(only(DEFAULT_PRO.prices, { card: false }), 'INR').map((p) => p.id)).toEqual(['razorpay']);
-    expect(providersFor(only(DEFAULT_PRO.prices, { razorpay_currencies: ['INR', 'USD'] }), 'USD').map((p) => p.id)).toEqual(['razorpay', 'card']);
+    expect(providersFor(DEFAULT_PRO, 'INR').map((p) => p.id)).toEqual(['razorpay']);
+    expect(providersFor(only(DEFAULT_PRO.prices, { razorpay_currencies: ['INR', 'USD'] }), 'USD').map((p) => p.id)).toEqual(['razorpay']);
+    expect(providersFor(only(DEFAULT_PRO.prices, { razorpay: false }), 'INR')).toEqual([]);
+  });
+
+  it("never offers the card provider while it isn't built, even when admins turn it on", () => {
+    expect(CARD_PROVIDER_READY).toBe(false);
+    expect(DEFAULT_PRO.providers.card).toBe(true);
+    expect(providersFor(DEFAULT_PRO, 'EUR')).toEqual([]); // the Plan page then says "Can't pay in EUR yet"
   });
 
   it('every default price is whole minor units and a year costs less than twelve months', () => {
