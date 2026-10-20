@@ -82,7 +82,14 @@ def rzp(monkeypatch):
 
     monkeypatch.setattr(razorpay, "create_order", create_order)
     monkeypatch.setattr(razorpay, "fetch_payment", fetch_payment)
+    async def order_payments(order_id):
+        if order_id in fake.broken:
+            raise razorpay.RazorpayError("Razorpay unreachable (ConnectError)")
+        return [dict(p) for p in fake.payments.values() if p["order_id"] == order_id]
+
+    fake.broken = set()
     monkeypatch.setattr(razorpay, "capture_payment", capture_payment)
+    monkeypatch.setattr(razorpay, "order_payments", order_payments)
     return fake
 
 
@@ -272,6 +279,39 @@ async def test_failed_then_paid_on_the_same_order(client, db, make_user, plan, r
     assert (row.status, row.error) == ("failed", "Card declined")
     await webhook(client, "payment.captured", payment=rzp.pay(order["order_id"]))
     assert await pro_until(db, someone) is not None
+
+
+# ------------------------------------------------------------------ the safety net
+
+async def test_unconfirmed_payments_are_found(client, db, make_user, plan, rzp):
+    """Paid, but the page closed before /verify and no webhook came: the worker's check turns Pro on."""
+    someone, other = await make_user(), await make_user()
+    paid = await checkout(client, someone)
+    rzp.pay(paid["order_id"])
+    authorized = await checkout(client, other, "yearly")
+    rzp.pay(authorized["order_id"], status="authorized")
+    abandoned = await checkout(client, someone)  # opened and closed: nothing to do
+    broken = await checkout(client, other)
+    rzp.pay(broken["order_id"])
+    rzp.broken.add(broken["order_id"])  # Razorpay unreachable for this one: the others still go through
+
+    now = datetime.now(timezone.utc)
+    assert await payments.reconcile(db, now) == 0  # too new: the checkout may still confirm it
+    later = now + timedelta(minutes=10)
+    assert await payments.reconcile(db, later) == 2
+    assert await pro_until(db, someone) is not None
+    assert (await current(client, other))["plan"] == "pro"
+    assert len(rzp.captured) == 1  # the authorized one was captured
+
+    until = await pro_until(db, someone)
+    rzp.broken.clear()
+    assert await payments.reconcile(db, later) == 1  # the broken one, now that Razorpay answers
+    assert await pro_until(db, someone) == until  # nothing counted twice
+    row = (await db.execute(select(Payment).where(Payment.order_id == abandoned["order_id"]))).scalar_one()
+    assert row.status == "created"
+
+    rzp.pay(abandoned["order_id"])
+    assert await payments.reconcile(db, now + timedelta(days=2)) == 0  # older than a day: left alone
 
 
 # ------------------------------------------------------------------ extending and refunds

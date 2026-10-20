@@ -73,6 +73,11 @@ async def fetch_payment(payment_id: str) -> dict:
     return await _call("GET", f"/payments/{payment_id}")
 
 
+async def order_payments(order_id: str) -> list[dict]:
+    """Every payment attempt on an order (failed ones too)."""
+    return (await _call("GET", f"/orders/{order_id}/payments")).get("items", [])
+
+
 async def capture_payment(payment_id: str, amount_minor: int, currency: str) -> dict:
     """Only needed when the Razorpay account doesn't capture payments by itself."""
     return await _call("POST", f"/payments/{payment_id}/capture", {"amount": amount_minor, "currency": currency})

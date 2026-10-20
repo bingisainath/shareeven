@@ -29,6 +29,8 @@ STALE_AFTER_MS = 60_000
 RECLAIM_EVERY_SECONDS = 60
 # "Your Pro ends in 7 days / tomorrow" (each sent once per end date; several workers don't double up)
 PRO_REMINDERS_EVERY_SECONDS = 3600
+# Paid Razorpay orders nobody confirmed (page closed, webhook lost) get Pro anyway
+RECONCILE_PAYMENTS_EVERY_SECONDS = 600
 # After this many tries an entry goes to the dead-letter stream instead of being retried forever
 MAX_DELIVERIES = 5
 # Consumer names with nothing pending that haven't been seen for a day are removed
@@ -69,6 +71,7 @@ class MessageWorker:
         loop = asyncio.get_running_loop()
         next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
         next_reminders = loop.time()
+        next_reconcile = loop.time() + 60
 
         while self.running:
             try:
@@ -78,6 +81,9 @@ class MessageWorker:
                 if loop.time() >= next_reminders:
                     next_reminders = loop.time() + PRO_REMINDERS_EVERY_SECONDS
                     await self.send_pro_reminders()
+                if loop.time() >= next_reconcile:
+                    next_reconcile = loop.time() + RECONCILE_PAYMENTS_EVERY_SECONDS
+                    await self.reconcile_payments()
 
                 results = await self.streams.read_messages(
                     consumer_name=self.consumer_name,
@@ -127,6 +133,15 @@ class MessageWorker:
                 return len(due)
         except Exception:
             logger.exception("Sending Pro reminders failed; trying again in an hour")
+            return 0
+
+    async def reconcile_payments(self) -> int:
+        """Ask Razorpay about recent unpaid orders, in case a payment was never confirmed."""
+        try:
+            async with async_session_maker() as db:
+                return await payments.reconcile(db)
+        except Exception:
+            logger.exception("Checking unconfirmed payments failed; trying again in 10 minutes")
             return 0
 
     async def handle(self, msg_id: str, fields: dict):

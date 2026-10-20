@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 MONTHS = {"monthly": 1, "yearly": 12}
 PAID = ("paid", "partially_refunded", "refunded")
 PAYMENT_ID = re.compile(r"pay_[A-Za-z0-9]{6,40}")
+# Unpaid orders the worker asks Razorpay about: old enough that the checkout has had its chance,
+# young enough to still matter (Razorpay refunds an uncaptured payment by itself after a few days)
+RECONCILE_AFTER = timedelta(minutes=5)
+RECONCILE_FOR = timedelta(hours=24)
+RECONCILE_BATCH = 50
 # Reminders before Pro ends, in days (largest first)
 REMINDERS = (7, 1)
 REMINDER_TITLE = "Your ShareEven Pro is ending"
@@ -226,9 +231,8 @@ async def handle_webhook(db: AsyncSession, event: dict) -> str:
         await apply_captured(db, entity)
     elif kind == "payment.authorized":
         payment = await _locked_order(db, entity.get("order_id") or "")
-        if payment is not None and payment.status in ("created", "failed") and PAYMENT_ID.fullmatch(entity.get("id") or ""):
-            captured = await razorpay.capture_payment(entity["id"], payment.amount_minor, payment.currency)
-            await apply_captured(db, captured)
+        if payment is not None and payment.status in ("created", "failed"):
+            await _capture_and_apply(db, payment, entity)
     elif kind == "payment.failed":
         await mark_failed(db, entity)
     elif kind == "refund.processed":
@@ -237,6 +241,48 @@ async def handle_webhook(db: AsyncSession, event: dict) -> str:
         return "ignored"
     await db.commit()
     return kind
+
+
+async def _capture_and_apply(db: AsyncSession, payment: Payment, entity: dict) -> None:
+    if entity.get("status") == "authorized" and PAYMENT_ID.fullmatch(entity.get("id") or ""):
+        entity = await razorpay.capture_payment(entity["id"], payment.amount_minor, payment.currency)
+    await apply_captured(db, entity)
+
+
+async def reconcile(db: AsyncSession, now: datetime | None = None) -> int:
+    """
+    The safety net for a paid order nobody told us about (the page closed before /verify and the
+    webhook never came): ask Razorpay about recent unpaid orders and apply what it says. Uses the
+    same apply_captured(), so nothing is counted twice. Returns how many orders turned paid.
+    """
+    now = now or _now()
+    if not razorpay.configured():
+        return 0
+    orders = (await db.execute(
+        select(Payment.id, Payment.order_id).where(
+            Payment.provider == "razorpay", Payment.status.in_(("created", "failed")),
+            Payment.created_at <= now - RECONCILE_AFTER, Payment.created_at >= now - RECONCILE_FOR,
+        ).order_by(Payment.created_at.desc()).limit(RECONCILE_BATCH)
+    )).all()
+    paid = 0
+    for row_id, order_id in orders:
+        try:
+            attempts = await razorpay.order_payments(order_id)
+            wanted = [e for e in attempts if e.get("status") in ("captured", "authorized")]
+            if not wanted:
+                continue
+            payment = await db.get(Payment, row_id)
+            for entity in wanted:
+                await _capture_and_apply(db, payment, entity)
+            await db.commit()
+            await db.refresh(payment)
+            if payment.status == "paid":
+                paid += 1
+                logger.warning("Order %s was paid but never confirmed (page closed and no webhook): Pro turned on now", order_id)
+        except razorpay.RazorpayError as e:
+            await db.rollback()
+            logger.error("Checking order %s with Razorpay failed: %s", order_id, e)
+    return paid
 
 
 # ------------------------------------------------------------------ admins
