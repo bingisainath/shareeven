@@ -1,6 +1,7 @@
 // src/components/organisms/SessionsSettings.tsx
 // Settings → Sessions: the phones and browsers signed in to this account right now, when each signed
-// in and was last active, and whether it's linked for end-to-end encryption.
+// in and was last active, and whether it's linked for end-to-end encryption. Devices unused for 30+ days
+// (a closed private window, a reset phone) are offered for removal: they can never approve a new device.
 
 import React, { useEffect, useState } from 'react';
 import { Globe, MonitorSmartphone, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react';
@@ -11,8 +12,9 @@ import { toast } from 'react-toastify';
 import { useAuth } from '../../app/AuthProvider';
 import { logOutDevice } from '../../crypto/v2-platform/link';
 import { confirmDialog } from './ConfirmDialog';
+import { unusedDevices } from '../../utils/devices';
 
-interface Session { device_id: number; name: string; created_at: string | null; last_seen_at: string | null; linked: boolean }
+interface Session { device_id: number; name: string; created_at: string | null; last_seen_at: string | null; linked: boolean; active_now?: boolean; unused?: boolean }
 
 const BROWSERS = /^(Chrome|Firefox|Safari|Edge|Browser)\b/;
 
@@ -49,6 +51,29 @@ const SessionsSettings: React.FC = () => {
     }
   };
 
+  const unused = sessions ? unusedDevices(sessions, mine) : [];
+  const removeUnused = async () => {
+    const names = unused.map((s) => s.name).join(', ');
+    if (!(await confirmDialog({
+      title: `Remove ${unused.length} unused device${unused.length === 1 ? '' : 's'}?`,
+      message: `${names}. None has been used for 30 days or more. Each is signed out and its encrypted chats are wiped from it; you can sign in there again any time.`,
+      confirmText: 'Remove', danger: true,
+    }))) return;
+    setBusy(-1);
+    let removed = 0;
+    for (const s of unused) {
+      try {
+        await logOutDevice(user!.id, s.device_id);
+        removed += 1;
+      } catch (e) {
+        toast.error(`${s.name}: ${parseApiError(e)}`);
+      }
+    }
+    if (removed) toast.success(`Removed ${removed} unused device${removed === 1 ? '' : 's'}`);
+    setBusy(null);
+    setVersion((v) => v + 1);
+  };
+
   useEffect(() => {
     Promise.all([
       api.get('/api/v1/e2e/v2/devices/me').then((r) => r.data.data.devices as Session[]),
@@ -70,6 +95,18 @@ const SessionsSettings: React.FC = () => {
           {error && <p className="mt-2 text-sm text-accent-600">{error}</p>}
         </div>
       </div>
+      {unused.length > 0 && (
+        <div className="mt-4 p-3 rounded-xl bg-warning-50 border border-warning-100 flex flex-wrap items-center gap-3">
+          <p className="flex-1 min-w-[14rem] text-sm text-warning-800">
+            {unused.length === 1 ? `${unused[0].name} hasn't` : `${unused.length} devices haven't`} been used for 30 days or more.
+            Removing unused devices keeps your account tidy, and a new device then asks only the ones you really use.
+          </p>
+          <button type="button" onClick={removeUnused} disabled={busy !== null}
+            className="flex-shrink-0 px-3 py-1.5 text-sm font-semibold rounded-lg bg-white border border-warning-200 text-warning-800 hover:bg-warning-100 disabled:opacity-50">
+            {busy === -1 ? 'Removing…' : `Remove ${unused.length === 1 ? 'it' : 'them'}`}
+          </button>
+        </div>
+      )}
       <div>
         <div>
           <ul className="mt-4 space-y-2" aria-label="Active sessions">
@@ -86,7 +123,7 @@ const SessionsSettings: React.FC = () => {
                       <span className="truncate">{s.name}</span>
                       {current && <span className="px-2 py-0.5 rounded-full bg-primary-100 text-primary-800 text-[11px] font-bold">This device</span>}
                     </p>
-                    <p className="text-sm text-muted-700">{current ? 'Active now' : activeLabel(s.last_seen_at)}</p>
+                    <p className="text-sm text-muted-700">{current || s.active_now ? 'Active now' : activeLabel(s.last_seen_at)}{s.unused && !current && <span className="ml-2 px-2 py-0.5 rounded-full bg-warning-50 text-warning-800 text-[11px] font-bold">Unused for 30+ days</span>}</p>
                     <p className="text-xs text-muted-500">Signed in {dateTime(s.created_at)}</p>
                     <p className={`mt-0.5 flex items-center gap-1 text-xs ${s.linked ? 'text-success-700' : 'text-warning-700'}`}>
                       {s.linked ? <ShieldCheck className="w-3.5 h-3.5" /> : <ShieldOff className="w-3.5 h-3.5" />}

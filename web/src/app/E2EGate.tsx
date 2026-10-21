@@ -26,6 +26,8 @@ import { isRecoveryKey } from '../crypto/backup';
 import api from '../utils/axios';
 import { DeviceRemovedError } from '../crypto/v2/device';
 import { LOGGED_OUT_ELSEWHERE_EVENT } from '../utils/authRefresh';
+import { approvers, lastActive } from '../utils/devices';
+import type { LinkedDevice } from '../utils/devices';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -122,6 +124,47 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
           <button type="button" onClick={logout} className="text-primary-700 hover:underline">Log out</button>
         </p>
       </div>
+    </div>
+  );
+};
+
+/**
+ * Which of the account's linked devices can approve this one, and whether any is open right now. A closed
+ * browser or a phone with the app shut still counts as linked but can't answer until it's opened again.
+ */
+const WhoCanApprove: React.FC = () => {
+  const [devices, setDevices] = useState<LinkedDevice[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get('/api/v1/e2e/v2/devices/me')
+      .then((r) => { if (alive) setDevices(approvers(r.data.data.devices as LinkedDevice[])); })
+      .catch(() => undefined);
+    load();
+    const timer = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+  if (!devices?.length) return null;
+  const anyOpen = devices.some((d) => d.active_now);
+  return (
+    <div className="mt-5 w-full text-left">
+      {!anyOpen && (
+        <p className="mb-2 p-3 rounded-lg bg-warning-50 text-warning-800 text-xs leading-relaxed" role="status">
+          None of your linked devices is open right now. Open ShareEven on one of them to approve this browser (phones also get a notification),
+          or choose “Don't have your other device?” below.
+        </p>
+      )}
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-500">Your linked devices</p>
+      <ul className="rounded-lg border border-muted-200 divide-y divide-muted-200">
+        {devices.map((d) => (
+          <li key={d.device_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+            <span className="truncate text-muted-800">{d.name}</span>
+            <span className={`flex-shrink-0 flex items-center gap-1.5 text-xs ${d.active_now ? 'text-success-700 font-semibold' : 'text-muted-500'}`}>
+              {d.active_now && <span className="w-2 h-2 rounded-full bg-success-500" />}
+              {lastActive(d)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };
@@ -242,6 +285,7 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
                 {showCode ? 'Approve with one tap instead' : 'Use a code instead'}
               </button>
             )}
+            <WhoCanApprove />
           </>
         ) : denied ? (
           <div className="text-center">

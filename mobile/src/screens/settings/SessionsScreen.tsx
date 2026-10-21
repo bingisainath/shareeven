@@ -1,6 +1,7 @@
 // src/screens/settings/SessionsScreen.tsx
 // Settings → Sessions: the phones and browsers signed in to this account right now, with when each
-// signed in and was last active, and whether it's linked for end-to-end encryption.
+// signed in and was last active, and whether it's linked for end-to-end encryption. Devices unused for 30+
+// days (a reset phone, a browser whose data was cleared) are offered for removal: they can't approve anything.
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,6 +13,7 @@ import { logOutDevice } from '../../crypto/v2-platform/link';
 import { useAuth } from '../../store/auth';
 import { showAlert } from '../../components/common/Dialog';
 import { colors, radius, space } from '../../theme';
+import { unusedDevices } from '../../utils/devices';
 
 export interface Session {
   device_id: number;
@@ -19,6 +21,8 @@ export interface Session {
   created_at: string | null;
   last_seen_at: string | null;
   linked: boolean;
+  active_now?: boolean;
+  unused?: boolean;
 }
 
 const BROWSERS = /^(Chrome|Firefox|Safari|Edge|Browser)\b/;
@@ -61,6 +65,31 @@ const SessionsScreen: React.FC = () => {
     },
   ]);
 
+  const unused = sessions ? unusedDevices(sessions, mine) : [];
+  const removeUnused = () => showAlert(
+    `Remove ${unused.length} unused device${unused.length === 1 ? '' : 's'}?`,
+    `${unused.map((s) => s.name).join(', ')}. None has been used for 30 days or more. Each is signed out and its encrypted chats are wiped from it; you can sign in there again any time.`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive', onPress: async () => {
+          setBusy(-1);
+          const failed: string[] = [];
+          for (const s of unused) {
+            try {
+              await logOutDevice(userId!, s.device_id);
+            } catch {
+              failed.push(s.name);
+            }
+          }
+          setBusy(null);
+          await load();
+          if (failed.length) showAlert("Couldn't remove some devices", failed.join(', '));
+        },
+      },
+    ],
+  );
+
   const load = useCallback(async () => {
     try {
       const [data, me] = await Promise.all([
@@ -86,6 +115,16 @@ const SessionsScreen: React.FC = () => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
       <Text style={styles.lead}>Phones and browsers signed in to your account. Don't recognise one? Log it out.</Text>
       {!!error && <Banner text={error} />}
+      {unused.length > 0 && (
+        <View style={styles.unused}>
+          <Text style={styles.unusedText}>
+            {unused.length === 1 ? `${unused[0].name} hasn't` : `${unused.length} devices haven't`} been used for 30 days or more. Removing unused devices means a new device asks only the ones you really use.
+          </Text>
+          <Pressable onPress={removeUnused} disabled={busy !== null} style={[styles.unusedButton, busy !== null && { opacity: 0.5 }]} accessibilityRole="button">
+            {busy === -1 ? <ActivityIndicator size="small" color={colors.warning700} /> : <Text style={styles.unusedButtonText}>Remove {unused.length === 1 ? 'it' : 'them'}</Text>}
+          </Pressable>
+        </View>
+      )}
       {sessions?.map((s) => {
         const Icon = BROWSERS.test(s.name) ? Globe : Smartphone;
         const current = s.device_id === mine;
@@ -99,7 +138,7 @@ const SessionsScreen: React.FC = () => {
                 <Text style={styles.name} numberOfLines={1}>{s.name}</Text>
                 {current && <Text style={styles.badge}>This device</Text>}
               </View>
-              <Text style={styles.active}>{current ? 'Active now' : activeLabel(s.last_seen_at)}</Text>
+              <Text style={styles.active}>{current || s.active_now ? 'Active now' : activeLabel(s.last_seen_at)}{s.unused && !current ? '  ·  Unused for 30+ days' : ''}</Text>
               <Text style={styles.detail}>Signed in {dateTime(s.created_at)}</Text>
               <View style={styles.encRow}>
                 {s.linked ? <ShieldCheck size={13} color={colors.success700} /> : <ShieldOff size={13} color={colors.warning700} />}
@@ -136,6 +175,10 @@ const styles = StyleSheet.create({
   logout: { alignSelf: 'flex-start', marginTop: space(2.5), paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200 },
   logoutText: { fontSize: 13, fontWeight: '600', color: colors.danger600 },
   encRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: space(1) },
+  unused: { padding: space(3), borderRadius: radius.lg, backgroundColor: colors.warning50, gap: space(2) },
+  unusedText: { fontSize: 13, lineHeight: 18, color: colors.warning700 },
+  unusedButton: { alignSelf: 'flex-start', paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning700, backgroundColor: colors.white },
+  unusedButtonText: { fontSize: 13, fontWeight: '600', color: colors.warning700 },
 });
 
 export default SessionsScreen;

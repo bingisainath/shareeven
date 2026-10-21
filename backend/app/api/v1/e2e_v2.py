@@ -95,10 +95,19 @@ async def _current_list(db: AsyncSession, user_id: uuid.UUID) -> Optional[dict]:
     return json.loads(row.signed_list) if row else None
 
 
+# Open right now: seen within this (open apps are marked about once a minute over their WebSocket)
+ACTIVE_NOW = timedelta(minutes=3)
+# Not used for this long: offered for removal in Settings → Linked devices
+UNUSED_AFTER = timedelta(days=30)
+
+
 def _device_view(d: E2EDevice) -> dict:
+    seen = d.last_seen_at
     return {"device_id": d.device_id, "name": d.name, "sign": d.sign_public, "dh": d.dh_public, "dhSig": d.dh_signature,
             "created_at": d.created_at.isoformat() if d.created_at else None,
-            "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None}
+            "last_seen_at": seen.isoformat() if seen else None,
+            "active_now": bool(seen and seen >= _now() - ACTIVE_NOW),
+            "unused": bool(seen and seen < _now() - UNUSED_AFTER)}
 
 
 # ---- devices
