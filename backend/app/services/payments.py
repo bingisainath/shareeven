@@ -42,6 +42,17 @@ REMINDERS = (7, 1)
 REMINDER_TITLE = "Your ShareEven Pro is ending"
 
 
+# What we keep of Razorpay's payment and refund records: enough to check and explain a payment, never
+# the buyer's contact details, UPI ID, bank or card (Razorpay has those; we don't need a copy)
+KEEP_FIELDS = ("id", "entity", "order_id", "payment_id", "status", "amount", "currency", "method", "captured",
+               "international", "amount_refunded", "refund_status", "fee", "tax", "created_at",
+               "error_code", "error_description", "error_reason", "error_source", "error_step")
+
+
+def _kept(entity: dict) -> dict:
+    return {k: entity[k] for k in KEEP_FIELDS if k in entity}
+
+
 class CheckoutError(Exception):
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
@@ -151,12 +162,12 @@ async def apply_captured(db: AsyncSession, entity: dict) -> Payment | None:
     if entity.get("amount") != payment.amount_minor or entity.get("currency") != payment.currency:
         logger.error("Payment %s for order %s is %s %s, not the order's %s %s: Pro not turned on",
                      payment_id, order_id, entity.get("amount"), entity.get("currency"), payment.amount_minor, payment.currency)
-        payment.status, payment.payment_id, payment.raw_event = "mismatch", payment_id, entity
+        payment.status, payment.payment_id, payment.raw_event = "mismatch", payment_id, _kept(entity)
         payment.error = "Paid amount or currency doesn't match the order"
         return payment
 
     now = _now()
-    payment.status, payment.payment_id, payment.paid_at, payment.raw_event, payment.error = "paid", payment_id, now, entity, None
+    payment.status, payment.payment_id, payment.paid_at, payment.raw_event, payment.error = "paid", payment_id, now, _kept(entity), None
     user = await db.get(User, payment.user_id, with_for_update=True) if payment.user_id else None
     if user is None or user.deleted_at is not None:
         logger.warning("Payment %s is for a deleted account: refund it in the Razorpay dashboard", payment_id)
@@ -172,7 +183,7 @@ async def mark_failed(db: AsyncSession, entity: dict) -> None:
     if payment is not None and payment.status in ("created", "failed"):
         payment.status = "failed"
         payment.error = (entity.get("error_description") or "Payment failed")[:300]
-        payment.raw_event = entity
+        payment.raw_event = _kept(entity)
 
 
 async def apply_refund(db: AsyncSession, refund: dict) -> Payment | None:
@@ -188,7 +199,7 @@ async def apply_refund(db: AsyncSession, refund: dict) -> Payment | None:
     payment.refunds = {**(payment.refunds or {}), refund_id: amount}
     payment.refunded_minor = min(payment.amount_minor, sum(payment.refunds.values()))
     payment.status = "refunded" if payment.refunded_minor >= payment.amount_minor else "partially_refunded"
-    payment.raw_event = refund
+    payment.raw_event = _kept(refund)
 
     user = await db.get(User, payment.user_id, with_for_update=True) if payment.user_id else None
     if user is not None and user.pro_until and payment.pro_from and payment.pro_until:

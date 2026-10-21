@@ -37,7 +37,7 @@ import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EV
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
 import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
-import { decryptedFields, decryptMessage, openText, recipientsFor, sealFor } from '../../crypto/messages';
+import { decryptedFields, decryptMessage, openText, NOT_ENCRYPTED_TEXT, recipientsFor, sealFor } from '../../crypto/messages';
 import { e2eSession } from '../../crypto/session';
 import { encryptForUpload, rememberDecrypted } from '../../crypto/media';
 import type { E2EMedia } from '../../crypto/e2e';
@@ -343,9 +343,11 @@ export const sendMessage = (
       }
       return;
     }
-    let outgoing = { text, hasLink: false };
+    let outgoing: { text: string; hasLink: boolean };
     try {
-      outgoing = (await sealFor(conversationId, { t: text })) || outgoing;
+      const sealed = await sealFor(conversationId, { t: text });
+      if (!sealed) throw new Error(NOT_ENCRYPTED_TEXT);
+      outgoing = sealed;
     } catch (error) {
       dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
       toast.error(parseApiError(error));
@@ -448,21 +450,7 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch, getSta
       outgoing = sealed;
       media = { mediaUrl: uploaded.url, mediaType: kind, mediaThumbnail: posterUrl };
     } else {
-    const uploaded = await mediaService.upload(toUpload, (percent) => {
-      // Past 100% the server is still compressing a video; keep the bar just short of full
-      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } }));
-    }, { signal: controller.signal, quality });
-    const dims = await dimensionsPromise;
-    media = {
-      mediaUrl: uploaded.url,
-      mediaType: kind,
-      mediaSize: uploaded.size,
-      mediaFilename: uploaded.filename,
-      mediaThumbnail: uploaded.thumbnailUrl || undefined,
-      mediaWidth: uploaded.width || dims?.width,
-      mediaHeight: uploaded.height || dims?.height,
-      mediaDuration: options.duration || uploaded.duration || undefined,
-    };
+      throw new Error(NOT_ENCRYPTED_TEXT); // never upload a readable file
     }
   } catch (error) {
     if (controller.signal.aborted) return; // cancelled: cancelUpload already removed it
@@ -552,14 +540,14 @@ export const forwardMessage = (message: Message, conversationIds: string[]) => a
         continue;
       }
       const sealed = await sealFor(conversationId, { t: message.text || '', m: encryptedMedia });
-      if (!sealed && encryptedMedia) {
-        skipped += 1; // an encrypted file can't go to a chat that isn't encrypted
+      if (!sealed) {
+        skipped += 1; // nothing goes to a chat that isn't end-to-end encrypted yet
         continue;
       }
       const media = encryptedMedia
         ? { mediaUrl: message.mediaUrl!, mediaType: message.mediaType!, mediaThumbnail: message.mediaThumbnail }
         : plainMedia;
-      if (wsService.sendMessage(conversationId, newClientId(), sealed?.text ?? (message.text || ''), media, undefined, sealed?.hasLink)) sent += 1;
+      if (wsService.sendMessage(conversationId, newClientId(), sealed.text, media, undefined, sealed.hasLink)) sent += 1;
     } catch (error) {
       toast.error(parseApiError(error));
     }

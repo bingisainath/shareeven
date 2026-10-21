@@ -38,6 +38,9 @@ PRESENCE_KEY = "papyris:presence"
 LEGACY_ONLINE_SET_KEY = "papyris:online_users"
 
 MAX_TEXT_LENGTH = 5000
+# Sent back when an app tries to send a message that isn't end-to-end encrypted
+NOT_ENCRYPTED = ("This chat isn't end-to-end encrypted yet, so messages can't be sent in it. "
+                 "Everyone in it needs to open the latest version of ShareEven once.")
 # An encrypted envelope carries the sealed key for every member plus base64 overhead
 MAX_ENCRYPTED_LENGTH = 200_000
 
@@ -266,6 +269,11 @@ async def ws_chat(ws: WebSocket):
 
                 if not text and not media_url:
                     await reject("Empty message")
+                    continue
+                # Everything people send is end-to-end encrypted: never store a readable message, even
+                # from an old app or a chat where someone hasn't set up encryption yet
+                if not encrypted:
+                    await reject(NOT_ENCRYPTED)
                     continue
 
                 media_size = data.get("mediaSize") if isinstance(data.get("mediaSize"), int) else None

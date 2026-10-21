@@ -48,7 +48,7 @@ code {
 }
 
 body {
-  font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'DM Sans Variable', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: #f6f6f8;
@@ -57,7 +57,7 @@ body {
 }
 
 h1, h2, h3 {
-  font-family: Manrope, 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Manrope Variable', Manrope, 'DM Sans Variable', ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.02em;
 }
 

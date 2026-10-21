@@ -121,7 +121,9 @@ async def test_worker_notifies_other_members(firebase, make_user, make_group, db
         "text": "Dinner at 8?", "timestamp": datetime.now(timezone.utc).isoformat(),
     })})
     assert [m["token"][:10] for m in firebase["sent"]] == ["bobs-phone"]  # not the sender
-    assert firebase["sent"][0]["notification"] == {"title": "Flat 4B", "body": f"{alice.username}: Dinner at 8?"}
+    # A message that isn't encrypted (an old app's) never puts its text in a notification
+    assert firebase["sent"][0]["notification"] == {"title": "Flat 4B", "body": f"{alice.username}: New message"}
+    assert "Dinner" not in json.dumps(firebase["sent"])
     assert firebase["sent"][0]["data"]["conversationId"] == group
 
 

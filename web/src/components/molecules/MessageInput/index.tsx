@@ -37,6 +37,8 @@ interface MessageInputProps {
   onSendVoice?: (file: File, seconds: number) => void;
   onTyping?: (isTyping: boolean) => void;
   disabled?: boolean;
+  /** The chat can't take messages (not end-to-end encrypted yet): only the expense button stays on. */
+  messagesDisabled?: boolean;
   maxLength?: number;
   showAttachment?: boolean;
   showEmoji?: boolean;
@@ -58,7 +60,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   onSend,
   onSendVoice,
   onTyping,
-  disabled = false,
+  disabled: offline = false,
+  messagesDisabled = false,
   maxLength = 5000,
   showAttachment = true,
   showEmoji = true,
@@ -71,6 +74,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   draftKey,
   onCancelEdit
 }) => {
+  const disabled = offline || messagesDisabled; // expenses only need a connection
   const [message, setMessage] = useState(() => (draftKey ? chatDrafts.get(draftKey) : ''));
   const [isFocused, setIsFocused] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -435,7 +439,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <button
               type="button"
               onClick={onExpense}
-              disabled={disabled}
+              disabled={offline}
               className={TOOL_BUTTON}
               title="Add expense"
               aria-label="Add expense"

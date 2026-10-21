@@ -38,7 +38,7 @@ class Payment(Base):
     # {refund_id: amount_minor}: each refund counted once however often Razorpay tells us
     refunds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     refunded_minor: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    raw_event: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # the last thing Razorpay said about it
+    raw_event: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # the last thing Razorpay said about it, without contact details (payments.KEEP_FIELDS)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

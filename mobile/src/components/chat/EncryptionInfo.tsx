@@ -64,7 +64,7 @@ const EncryptionInfo: React.FC<{ conversationId: string; otherId?: string; other
           <Text style={styles.title}>Not end-to-end encrypted yet</Text>
           <Text style={styles.text}>
             {otherId ? `${otherName || 'They'} hasn't set up encryption.` : `${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption.`}
-            {' '}New messages are encrypted once everyone has.
+            {' '}Messages can be sent once everyone has; expenses work as usual.
           </Text>
         </View>
       </View>

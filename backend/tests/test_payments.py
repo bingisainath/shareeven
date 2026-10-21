@@ -470,3 +470,16 @@ def test_production_razorpay_settings():
     assert "test key" in production_problems(test_key)[0]
     none = SimpleNamespace(**base, RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET="", RAZORPAY_WEBHOOK_SECRET="", REDIS_URL="", CORS_ORIGINS=[])
     assert production_problems(none) == [] and any("RAZORPAY" in w for w in production_warnings(none))
+
+
+async def test_buyers_contact_details_are_not_kept(client, db, make_user, plan, rzp):
+    """Razorpay's record has the buyer's email, phone and UPI ID; our copy keeps only what explains the payment."""
+    someone = await make_user()
+    order = await checkout(client, someone)
+    paid = rzp.pay(order["order_id"])
+    rzp.payments[paid["id"]].update(email="buyer@example.com", contact="+919999999999", vpa="buyer@upi", bank="HDFC",
+                                    card={"last4": "1111"}, notes={"user_id": someone.id})
+    assert (await verify(client, someone, order["order_id"], paid["id"])).status_code == 200
+    row = (await db.execute(select(Payment).where(Payment.order_id == order["order_id"]))).scalar_one()
+    assert row.raw_event["id"] == paid["id"] and row.raw_event["amount"] == 9900
+    assert not {"email", "contact", "vpa", "bank", "card", "notes"} & set(row.raw_event)

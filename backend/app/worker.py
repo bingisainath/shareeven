@@ -168,7 +168,8 @@ class MessageWorker:
             return
         conversation = await db.get(Conversation, message.conversation_id)
         sender = data.get("senderName") or "Someone"
-        if settings.PUSH_SHOW_MESSAGE_TEXT:
+        if settings.PUSH_SHOW_MESSAGE_TEXT and media_storage.is_encrypted(message.text):
+            # A label only ("Photo", "New message"); the phone decrypts the real text itself
             preview = media_storage.preview_text(message.message_type.value, message.text, message.media_filename)
         else:
             preview = "New message"

@@ -23,7 +23,7 @@ import { chatDrafts } from '../../utils/drafts';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
 import { mediaPayloadOf, onScreen, typingNames, useChat } from '../../store/chat';
-import { sealFor } from '../../crypto/messages';
+import { NOT_ENCRYPTED_TEXT, sealFor } from '../../crypto/messages';
 import { editV2 } from '../../crypto/v2-platform/chat';
 import { socket } from '../../websocket/socket';
 import { colors, radius, space } from '../../theme';
@@ -225,7 +225,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         }
         // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
         const sealed = await sealFor(conversationId, { t: value, m: mediaPayloadOf(original) });
-        await chatApi.editMessage(original.id, sealed?.text ?? value, sealed?.hasLink);
+        if (!sealed) throw new Error(NOT_ENCRYPTED_TEXT);
+        await chatApi.editMessage(original.id, sealed.text, sealed.hasLink);
       } catch (e) {
         showAlert("Couldn't edit message", errorMessage(e));
       }
@@ -367,8 +368,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             <LockOpen size={14} color={colors.warning700} />
             <Text style={styles.notEncryptedText}>
               {conversation?.isGroup
-                ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
-                : `Not end-to-end encrypted yet: ${conversation?.name || 'they'} hasn't set up encryption. New messages will be encrypted once they do.`}
+                ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. Messages can be sent once everyone has.`
+                : `Not end-to-end encrypted yet: ${conversation?.name || 'they'} hasn't set up encryption. Messages can be sent once they do.`}
             </Text>
           </View>
         )}
@@ -445,6 +446,11 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             }} hitSlop={8} accessibilityLabel={`Unblock ${conversation.name}`}>
               <Text style={styles.blockedAction}>Unblock</Text>
             </Pressable>
+          </View>
+        ) : encryption.state === 'not-encrypted' ? (
+          <View style={styles.blocked}>
+            <LockOpen size={18} color={colors.warning700} />
+            <Text style={styles.blockedText}>Messages can be sent here once everyone has set up encryption. Expenses work as usual.</Text>
           </View>
         ) : (
         <Composer
