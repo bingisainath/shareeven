@@ -3,7 +3,8 @@ Create a ready-to-use test account (email already verified), for trying the app 
 
     python scripts/create_test_user.py <username> [--email EMAIL] [--password PASSWORD] [--name NAME]
 
-Without --email it uses <username>@test.local (no real mailbox needed). Only someone with access to
+Without --email it uses <username>@example.com (a domain reserved for examples: no real mailbox, and unlike
+.test or .local it passes the email check on /auth/me). Only someone with access to
 the server and its database can run this. Don't use it on a production server.
 """
 
@@ -49,4 +50,4 @@ if __name__ == "__main__":
     parser.add_argument("--password", default="Passw0rd!23")
     parser.add_argument("--name")
     args = parser.parse_args()
-    sys.exit(asyncio.run(main(args.username, args.email or f"{args.username}@test.local", args.password, args.name)))
+    sys.exit(asyncio.run(main(args.username, args.email or f"{args.username}@example.com", args.password, args.name)))

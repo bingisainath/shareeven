@@ -61,13 +61,16 @@ export interface ProviderOption {
   methods: string;
 }
 
+/** The card provider (for currencies Razorpay doesn't take) isn't built yet: never offered, even when admins turn it on. */
+export const CARD_PROVIDER_READY = false;
+
 /** Who can take a payment in this currency, best first (as turned on by admins). */
 export function providersFor(plan: ProPlan, currency: string): ProviderOption[] {
   const out: ProviderOption[] = [];
   if (plan.providers.razorpay && plan.providers.razorpay_currencies.includes(currency)) {
     out.push({ id: 'razorpay', label: 'Razorpay', methods: currency === 'INR' ? 'UPI, cards, net banking and wallets' : 'Cards and wallets' });
   }
-  if (plan.providers.card) out.push({ id: 'card', label: 'Credit or debit card', methods: 'Visa, Mastercard, Amex and more' });
+  if (plan.providers.card && CARD_PROVIDER_READY) out.push({ id: 'card', label: 'Credit or debit card', methods: 'Visa, Mastercard, Amex and more' });
   return out;
 }
 

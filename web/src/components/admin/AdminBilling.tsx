@@ -8,7 +8,7 @@ import { toast } from 'react-toastify';
 import { CreditCard, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { adminBilling } from '../../services/billing.service';
 import type { AdminProPlan } from '../../services/billing.service';
-import { formatPrice, perMonth } from '../../utils/plans';
+import { formatPrice, perMonth, CARD_PROVIDER_READY } from '../../utils/plans';
 import { parseApiError } from '../../utils/apiError';
 
 interface PriceRow { currency: string; monthly: string; yearly: string; enabled: boolean }
@@ -239,7 +239,7 @@ const AdminBilling: React.FC = () => {
             <CreditCard className="w-5 h-5 text-primary-700" />
             <div className="flex-1 min-w-[12rem]">
               <p className="text-sm font-semibold text-muted-900">Credit or debit card</p>
-              <p className="text-xs text-muted-500">Every currency above</p>
+              <p className="text-xs text-muted-500">{CARD_PROVIDER_READY ? 'Every currency above' : "Not built yet: people aren't offered it even when it's on. Currencies Razorpay doesn't take can't be paid."}</p>
             </div>
             <Toggle on={form.card} onChange={(on) => set({ card: on })} label="Credit or debit card" />
           </div>

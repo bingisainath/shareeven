@@ -18,7 +18,7 @@ from app.models.conversation_member import ConversationMember
 from sqlalchemy import select, update
 
 from app.config.settings import settings
-from app.services import media_storage, push
+from app.services import media_storage, notices, payments, push
 from app.services import safety
 
 logger = logging.getLogger("app.worker")
@@ -27,6 +27,10 @@ logger = logging.getLogger("app.worker")
 # retried by the same one): it crashed mid-save, or the save failed.
 STALE_AFTER_MS = 60_000
 RECLAIM_EVERY_SECONDS = 60
+# "Your Pro ends in 7 days / tomorrow" (each sent once per end date; several workers don't double up)
+PRO_REMINDERS_EVERY_SECONDS = 3600
+# Paid Razorpay orders nobody confirmed (page closed, webhook lost) get Pro anyway
+RECONCILE_PAYMENTS_EVERY_SECONDS = 600
 # After this many tries an entry goes to the dead-letter stream instead of being retried forever
 MAX_DELIVERIES = 5
 # Consumer names with nothing pending that haven't been seen for a day are removed
@@ -66,12 +70,20 @@ class MessageWorker:
         logger.info("Listening for messages as %s", self.consumer_name)
         loop = asyncio.get_running_loop()
         next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+        next_reminders = loop.time()
+        next_reconcile = loop.time() + 60
 
         while self.running:
             try:
                 if loop.time() >= next_reclaim:
                     await self.reclaim_stale()
                     next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+                if loop.time() >= next_reminders:
+                    next_reminders = loop.time() + PRO_REMINDERS_EVERY_SECONDS
+                    await self.send_pro_reminders()
+                if loop.time() >= next_reconcile:
+                    next_reconcile = loop.time() + RECONCILE_PAYMENTS_EVERY_SECONDS
+                    await self.reconcile_payments()
 
                 results = await self.streams.read_messages(
                     consumer_name=self.consumer_name,
@@ -109,6 +121,29 @@ class MessageWorker:
         for msg_id, fields in stale:
             await self.handle(msg_id, fields)
 
+    async def send_pro_reminders(self) -> int:
+        """A notice (Settings → Notices) and a push for everyone whose Pro ends within 7 days, then 1."""
+        try:
+            async with async_session_maker() as db:
+                due = await payments.due_reminders(db)
+                await db.commit()
+                if due:
+                    await notices.deliver(db, due)
+                    logger.info("Sent %d Pro reminder(s)", len(due))
+                return len(due)
+        except Exception:
+            logger.exception("Sending Pro reminders failed; trying again in an hour")
+            return 0
+
+    async def reconcile_payments(self) -> int:
+        """Ask Razorpay about recent unpaid orders, in case a payment was never confirmed."""
+        try:
+            async with async_session_maker() as db:
+                return await payments.reconcile(db)
+        except Exception:
+            logger.exception("Checking unconfirmed payments failed; trying again in 10 minutes")
+            return 0
+
     async def handle(self, msg_id: str, fields: dict):
         """Process one entry. On failure it stays pending and is retried by the sweep, up to MAX_DELIVERIES."""
         try:
@@ -133,7 +168,8 @@ class MessageWorker:
             return
         conversation = await db.get(Conversation, message.conversation_id)
         sender = data.get("senderName") or "Someone"
-        if settings.PUSH_SHOW_MESSAGE_TEXT:
+        if settings.PUSH_SHOW_MESSAGE_TEXT and media_storage.is_encrypted(message.text):
+            # A label only ("Photo", "New message"); the phone decrypts the real text itself
             preview = media_storage.preview_text(message.message_type.value, message.text, message.media_filename)
         else:
             preview = "New message"

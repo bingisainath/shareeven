@@ -123,7 +123,10 @@ export async function recipientsFor(conversationId: string): Promise<Recipient[]
   return Object.entries(chat.members).map(([userId, k]) => ({ userId, enc: k.enc! }));
 }
 
-/** Encrypt a message for a chat, or null if this chat isn't end-to-end encrypted (send it as is). */
+/** Why nothing is sent in a chat that isn't end-to-end encrypted yet (the server refuses it too). */
+export const NOT_ENCRYPTED_TEXT = "This chat isn't end-to-end encrypted yet, so messages can't be sent in it.";
+
+/** Encrypt a message for a chat, or null if this chat isn't end-to-end encrypted yet (then don't send it). */
 export async function sealFor(conversationId: string, payload: E2EPayload): Promise<{ text: string; hasLink: boolean } | null> {
   const recipients = await recipientsFor(conversationId);
   if (!recipients) return null;

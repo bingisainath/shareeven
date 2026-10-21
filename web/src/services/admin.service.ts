@@ -28,6 +28,8 @@ export interface AccountSummary {
   deleted: boolean;
   suspension: Suspension | null;
   reports_against: number;
+  /** Set while they have Pro: when it ends. */
+  pro_until: string | null;
 }
 
 export interface AdminActionView {
@@ -48,6 +50,7 @@ export interface AccountDetails extends AccountSummary {
     signed_in_sessions: number; blocked_by: number; reports_made: number; warnings: number;
   };
   scans: ScanAllowance;
+  pro: ProStatus & { payments: PaymentView[] };
   devices: { name: string; added_at: string | null; last_seen_at: string | null }[];
   reports: { id: string; reason: string; details: string | null; status: string; created_at: string }[];
   admin_actions: AdminActionView[];
@@ -60,6 +63,26 @@ export interface ScanAllowance {
   app_limit: number;
   custom_limit: number | null; // 0 = scanning paused
   extra_this_month: number;
+}
+
+export interface ProStatus { plan: 'free' | 'pro'; until?: string }
+
+export interface PaymentView {
+  id: string;
+  provider: string;
+  order_id: string;
+  payment_id: string | null;
+  billing: 'monthly' | 'yearly';
+  currency: string;
+  amount: number;
+  refunded: number;
+  /** paid | failed | mismatch (paid the wrong amount: never turned Pro on) | refunded | partially_refunded */
+  status: string;
+  error: string | null;
+  pro_from: string | null;
+  pro_until: string | null;
+  created_at: string;
+  paid_at: string | null;
 }
 
 export type AccountFilter = 'all' | 'suspended' | 'reported' | 'admins';
@@ -78,5 +101,7 @@ export const adminService = {
     data<ScanAllowance>(api.post(`${V1}/users/${id}/scan-limit`, { limit, reason })),
   giveExtraScans: (id: string, count: number, reason: string) =>
     data<ScanAllowance>(api.post(`${V1}/users/${id}/extra-scans`, { count, reason })),
+  setPro: (id: string, action: 'grant' | 'end', reason: string, days?: number) =>
+    data<ProStatus & { scans: ScanAllowance }>(api.post(`${V1}/users/${id}/pro`, { action, reason, days })),
   actions: (includeViews: boolean) => data<AdminActionView[]>(api.get(`${V1}/actions`, { params: { include_views: includeViews } })),
 };

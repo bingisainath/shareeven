@@ -281,7 +281,7 @@ async def test_admin_sets_scans_per_person(client, make_user, make_dm, fake_ai, 
     await scan(client, other, dm)
     for count in (1, 2):
         r = await client.post(f"{base}/{other.id}/extra-scans", json={"count": count, "reason": "A scan went wrong"}, headers=admin.headers)
-    assert r.json()["data"] == {"limit": 4, "app_limit": 1, "custom_limit": None, "extra_this_month": 3, "used": 1}
+    assert r.json()["data"] == {"limit": 4, "app_limit": 1, "custom_limit": None, "extra_this_month": 3, "used": 1, "pro": False}
     await scan(client, other, dm)
 
     # Extra scans from an earlier month don't count

@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field, field_validator
 from app.services import media_storage
-from app.websocket.routes import MAX_ENCRYPTED_LENGTH, MAX_TEXT_LENGTH
+from app.websocket.routes import MAX_ENCRYPTED_LENGTH, NOT_ENCRYPTED
 
 
 class EditMessageRequest(BaseModel):
@@ -13,8 +13,8 @@ class EditMessageRequest(BaseModel):
     @classmethod
     def strip_text(cls, v: str) -> str:
         v = v.strip()
-        if not media_storage.is_encrypted(v) and len(v) > MAX_TEXT_LENGTH:
-            raise ValueError(f"Message too long (max {MAX_TEXT_LENGTH} characters)")
+        if v and not media_storage.is_encrypted(v):
+            raise ValueError(NOT_ENCRYPTED)  # edits are end-to-end encrypted like new messages
         return v
 
 

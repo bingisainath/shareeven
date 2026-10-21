@@ -5,6 +5,9 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../../app/AuthProvider';
+import { loadPublicPlan } from '../../services/billing.service';
+import { formatPrice, perMonth, planCurrency } from '../../utils/plans';
+import type { ProPlan } from '../../utils/plans';
 import './landing.css';
 
 type IconName = 'arrow' | 'check' | 'chevron' | 'coins' | 'globe' | 'lock' | 'message' | 'receipt' | 'scan' | 'send' | 'shield' | 'sparkles' | 'split' | 'users' | 'wallet' | 'x';
@@ -210,25 +213,20 @@ const PrivacyVisual: React.FC = () => (
   </div>
 );
 
-const PricingCard: React.FC<{ plus?: boolean; title: string; price: string; children: ReactNode }> = ({ plus, title, price, children }) => (
+const PricingCard: React.FC<{ plus?: boolean; soon?: boolean; title: string; price: string; per?: string; note?: string; children: ReactNode; action: ReactNode }> = ({ plus, soon, title, price, per, note, children, action }) => (
   <article className={`pricing-card ${plus ? 'pricing-plus' : ''}`}>
-    {plus && <span className="coming-badge">COMING SOON</span>}
+    {soon && <span className="coming-badge">COMING SOON</span>}
     <div className="price-head">
       <h3>{title}</h3>
       <p>{plus ? 'For groups that scan and share more.' : 'Everything you need to share fairly.'}</p>
     </div>
     <div className="price">
       <strong>{price}</strong>
-      {!plus && <span>forever</span>}
+      {per && <span>{per}</span>}
     </div>
+    {note && <p className="price-note">{note}</p>}
     <ul>{children}</ul>
-    {plus ? (
-      <a className="price-button disabled" href="mailto:support@shareeven.com?subject=ShareEven%20Plus%20waitlist">
-        Join the waitlist <Icon name="arrow" size={17} />
-      </a>
-    ) : (
-      <Link className="price-button" to="/signup">Create a free account <Icon name="arrow" size={17} /></Link>
-    )}
+    {action}
   </article>
 );
 
@@ -237,6 +235,11 @@ const Check: React.FC<{ children: ReactNode }> = ({ children }) => <li><Icon nam
 const Landing: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  // Pro's real prices (set in Admin → Pro & payments); null until loaded, so no made-up price ever shows
+  const [pro, setPro] = useState<ProPlan | null>(null);
+  useEffect(() => { loadPublicPlan().then(setPro).catch(() => setPro(null)); }, []);
+  const currency = pro ? planCurrency(pro, user?.display_currency, typeof navigator !== 'undefined' ? navigator.language : '') : 'INR';
+  const proPrice = pro?.prices[currency];
 
   useEffect(() => {
     document.title = 'ShareEven: chat privately, split fairly';
@@ -356,16 +359,23 @@ const Landing: React.FC = () => {
             <SectionHeading eyebrow="Simple pricing" title="Start sharing. Stay for free."
               body="No card required. No limit on the people or plans that matter." />
             <div className="pricing-grid">
-              <PricingCard title="Free" price="€0">
+              <PricingCard title="Free" price={formatPrice(0, currency)} per="forever"
+                action={<Link className="price-button" to="/signup">Create a free account <Icon name="arrow" size={17} /></Link>}>
                 <Check>Unlimited chats and groups</Check>
                 <Check>Unlimited shared expenses</Check>
                 <Check>Multi-currency and settle-up links</Check>
                 <Check>Monthly AI receipt scan allowance</Check>
               </PricingCard>
-              <PricingCard plus title="ShareEven Plus" price="More ease.">
-                <Check>Everything included in Free</Check>
-                <Check>Many more receipt scans every month</Check>
-                <Check>Support the people building ShareEven</Check>
+              <PricingCard plus soon={!pro?.payments_enabled} title="ShareEven Pro"
+                price={proPrice ? formatPrice(proPrice.monthly, currency) : 'More ease.'} per={proPrice ? 'a month' : undefined}
+                note={proPrice ? `or ${formatPrice(proPrice.yearly, currency)} a year (${formatPrice(perMonth(proPrice.yearly), currency)} a month). Paid once, never renews by itself. Prices include taxes.` : undefined}
+                action={pro?.payments_enabled ? (
+                  <Link className="price-button" to={user ? '/settings/plan' : '/signup'}>Get Pro <Icon name="arrow" size={17} /></Link>
+                ) : (
+                  <a className="price-button disabled" href="mailto:support@shareeven.com?subject=ShareEven%20Pro%20waitlist">Join the waitlist <Icon name="arrow" size={17} /></a>
+                )}>
+                {(pro?.features || ['Many more receipt scans every month', 'Everything in Free', 'Support the people building ShareEven'])
+                  .map((f) => <Check key={f}>{f}</Check>)}
               </PricingCard>
             </div>
           </div>

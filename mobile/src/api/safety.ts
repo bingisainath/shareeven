@@ -30,7 +30,7 @@ export const safetyApi = {
 /** A message from the ShareEven team: a warning, or the outcome of a report you made. */
 export interface Notice {
   id: string;
-  kind: 'warning' | 'report_update';
+  kind: 'warning' | 'report_update' | 'pro_reminder';
   title: string;
   body: string;
   reason: string | null;

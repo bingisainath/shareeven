@@ -250,7 +250,7 @@ async def forgot_password(
     account) stop anyone using this to check emails in bulk.
     """
     await rl.enforce((rl.FORGOT_PER_IP, rl.client_ip(request)), (rl.FORGOT_PER_ACCOUNT, payload.identifier))
-    success, user = await AuthService.request_password_reset(db, payload.identifier)
+    success, user, token = await AuthService.request_password_reset(db, payload.identifier)
     if not (success and user):
         logger.info("Password reset requested for an unknown account")
         raise HTTPException(
@@ -258,7 +258,7 @@ async def forgot_password(
             detail={"message": "We couldn't find a ShareEven account with that username or email.", "code": "account_not_found"},
         )
 
-    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={user.reset_token}"
+    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
     # Never log the link or token: anyone reading logs could reset the password.
     # (Without SMTP configured, email_service logs the email in dev mode instead.)
     logger.info("Password reset requested for user %s", user.id)

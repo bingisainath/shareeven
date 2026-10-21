@@ -29,7 +29,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronDown, Lock, LockOpen, Search, ShieldAlert, UserPlus } from 'lucide-react';
 import ChatSearch from './ChatSearch';
 import { downloadDecrypted } from '../../../crypto/media';
-import { sealFor } from '../../../crypto/messages';
+import { NOT_ENCRYPTED_TEXT, sealFor } from '../../../crypto/messages';
 import { useChatEncryption } from '../../../crypto/useChatEncryption';
 import { editV2 } from '../../../crypto/v2-platform/chat';
 import { useKeyChanges, useTrustActions } from '../../../crypto/v2-platform/trust';
@@ -292,7 +292,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         }
         // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
         const sealed = await sealFor(conversationId, { t: text, m: mediaPayloadOf(original) });
-        const result = await chatService.editMessage(original.id, sealed?.text ?? text, sealed?.hasLink);
+        if (!sealed) throw new Error(NOT_ENCRYPTED_TEXT);
+        const result = await chatService.editMessage(original.id, sealed.text, sealed.hasLink);
         dispatch(applyMessageUpdate({
           conversationId,
           messageId: original.id,
@@ -656,8 +657,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           <LockOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
           <span>
             {isGroup
-              ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
-              : `Not end-to-end encrypted yet: ${conversationName} hasn't set up encryption. New messages will be encrypted once they do.`}
+              ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. Messages can be sent once everyone has; expenses work as usual.`
+              : `Not end-to-end encrypted yet: ${conversationName} hasn't set up encryption. Messages can be sent once they do; expenses work as usual.`}
           </span>
         </div>
       )}
@@ -758,8 +759,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           editingText={editingMessage ? editingMessage.text : null}
           onCancelEdit={() => setEditingMessage(null)}
           onTyping={handleTyping}
-          placeholder={isConnected ? "Type a message..." : "Waiting for connection…"}
+          placeholder={!isConnected ? "Waiting for connection…" : encryption.state === 'not-encrypted' ? "Messages can be sent once everyone has set up encryption" : "Type a message..."}
           disabled={!isConnected}
+          messagesDisabled={encryption.state === 'not-encrypted'}
           showExpense
           onExpense={() => setAddingExpense(true)}
         />

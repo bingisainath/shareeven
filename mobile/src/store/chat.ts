@@ -7,7 +7,7 @@ import { chatApi, Conversation, Message, MuteDuration, ReplyPreview } from '../a
 import { OutgoingMedia, socket, WsEvent } from '../websocket/socket';
 import { LocalFile, UploadQuality, uploadFile } from '../api/media';
 import { createThumbnail } from 'react-native-create-thumbnail';
-import { decryptedFields, decryptMessage, mediaLabel, openText, recipientsFor, sealFor, unverifiedMessages } from '../crypto/messages';
+import { decryptedFields, decryptMessage, mediaLabel, NOT_ENCRYPTED_TEXT, openText, recipientsFor, sealFor, unverifiedMessages } from '../crypto/messages';
 import { encryptForUpload, rememberDecrypted } from '../crypto/media';
 import type { E2EMedia } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
@@ -266,14 +266,14 @@ export const useChat = create<ChatState>((set, get) => ({
       }
       // Encrypted files are re-used as they are: only their key is sealed again for the new chat
       const sealed = await sealFor(id, { t: message.text || '', m: encryptedMedia });
-      if (!sealed && encryptedMedia) {
-        skipped += 1; // an encrypted file can't go to a chat that isn't encrypted
+      if (!sealed) {
+        skipped += 1; // nothing goes to a chat that isn't end-to-end encrypted yet
         continue;
       }
       const media = encryptedMedia
         ? { mediaUrl: message.mediaUrl!, mediaType: message.mediaType!, mediaThumbnail: message.mediaThumbnail }
         : plainMedia;
-      if (socket.sendMessage(id, newClientId(), sealed?.text ?? (message.text || ''), undefined, media, sealed?.hasLink)) sent += 1;
+      if (socket.sendMessage(id, newClientId(), sealed.text, undefined, media, sealed.hasLink)) sent += 1;
     }
     return { sent, skipped };
   },
@@ -399,7 +399,7 @@ async function sendText(conversationId: string, clientId: string, text: string, 
   }
   try {
     const sealed = await sealFor(conversationId, { t: text });
-    if (socket.sendMessage(conversationId, clientId, sealed?.text ?? text, replyToId, undefined, sealed?.hasLink)) return;
+    if (sealed && socket.sendMessage(conversationId, clientId, sealed.text, replyToId, undefined, sealed.hasLink)) return;
   } catch {
     // keys out of date (reset on another device) or offline: shown as not sent
   }
@@ -509,31 +509,8 @@ async function uploadAndSend(clientId: string) {
       job.sealed = sealed;
       job.sent = { mediaUrl: uploaded.url, mediaType: kind, mediaThumbnail: posterUrl };
     }
-    if (!job.sent) {
-      const uploaded = await uploadFile(attachment.file, {
-        quality: attachment.quality,
-        signal: controller.signal,
-        // Past 100% the server is still compressing a video; keep the bar just short of full
-        onProgress: (percent) => updateMessage(set, conversationId, clientId, { uploadProgress: Math.min(percent, 99) }),
-      });
-      job.sent = {
-        mediaUrl: uploaded.url,
-        mediaType: kind,
-        mediaSize: uploaded.size,
-        mediaFilename: uploaded.filename,
-        // For videos the server's numbers come from the decoded frame, so they respect rotation
-        mediaWidth: uploaded.width || attachment.width,
-        mediaHeight: uploaded.height || attachment.height,
-        mediaDuration: attachment.duration || uploaded.duration || undefined,
-        mediaThumbnail: uploaded.thumbnailUrl || undefined,
-      };
-      if (uploaded.thumbnailSignedUrl) {
-        updateMessage(set, conversationId, clientId, {
-          mediaThumbnail: uploaded.thumbnailSignedUrl, mediaWidth: job.sent.mediaWidth, mediaHeight: job.sent.mediaHeight,
-        });
-      }
-    }
-    if (socket.sendMessage(conversationId, clientId, job.sealed?.text ?? attachment.caption, replyTo?.id, job.sent, job.sealed?.hasLink)) {
+    if (!job.sent || !job.sealed) throw new Error(NOT_ENCRYPTED_TEXT); // never upload or send a readable file
+    if (socket.sendMessage(conversationId, clientId, job.sealed.text, replyTo?.id, job.sent, job.sealed.hasLink)) {
       uploads.delete(clientId);
       updateMessage(set, conversationId, clientId, { uploadProgress: undefined });
     } else {

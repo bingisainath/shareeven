@@ -62,9 +62,16 @@ class AuthService:
             return await AuthService.get_user_by_username(db, identifier)
     
     @staticmethod
+    def hash_reset_token(token: str) -> str:
+        """Only this is stored: someone who reads the database can't use it to reset a password."""
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    @staticmethod
     async def get_user_by_reset_token(db: AsyncSession, token: str) -> User | None:
-        """Get user by password reset token"""
-        result = await db.execute(select(User).where(User.reset_token == token))
+        """Get user by password reset token (the one from the emailed link)"""
+        if not token:
+            return None
+        result = await db.execute(select(User).where(User.reset_token == AuthService.hash_reset_token(token)))
         return result.scalar_one_or_none()
 
     # -----------------------------
@@ -227,17 +234,17 @@ class AuthService:
     # ✅ NEW: Password Reset
     # -----------------------------
     @staticmethod
-    async def request_password_reset(db: AsyncSession, identifier: str) -> tuple[bool, User | None]:
+    async def request_password_reset(db: AsyncSession, identifier: str) -> tuple[bool, User | None, str | None]:
         """
         Request password reset (returns user if found, None otherwise)
         
         Returns:
-            (success, user): Tuple of success flag and user object
+            (success, user, token): the token goes in the emailed link and is never stored (only its hash)
         """
         user = await AuthService.get_user_by_identifier(db, identifier)
         
         if not user or user.deleted_at is not None:
-            return (False, None)
+            return (False, None, None)
         
         # Generate secure token
         reset_token = secrets.token_urlsafe(32)
@@ -246,11 +253,11 @@ class AuthService:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         # Update user
-        user.reset_token = reset_token
+        user.reset_token = AuthService.hash_reset_token(reset_token)
         user.reset_token_expires = expires_at
         await db.commit()
         
-        return (True, user)
+        return (True, user, reset_token)
     
     @staticmethod
     async def verify_reset_token(db: AsyncSession, token: str) -> User:

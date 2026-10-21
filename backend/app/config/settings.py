@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     # Encrypts the AI keys people add themselves; falls back to one derived from JWT_SECRET_KEY
     AI_KEY_ENCRYPTION_SECRET: str = ""
+    # ShareEven Pro payments (Razorpay dashboard → Account & Settings → API keys / Webhooks).
+    # Secrets: never logged or returned (only the key id goes to the checkout, as Razorpay intends).
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: str = ""
     RECEIPT_SCANS_PER_MONTH: int = 100  # per person; admins can change it in the admin console
     # Measured on real receipts (2026-10): Opus 5 at medium read all 7 right, cheaper and faster than at high
     RECEIPT_AI_EFFORT: str = "medium"

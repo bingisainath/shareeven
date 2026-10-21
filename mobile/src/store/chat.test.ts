@@ -17,6 +17,9 @@ const cleared: string[][] = [];
 jest.mock('../notifications/push', () => ({ clearChatNotifications: (ids: string[]) => { cleared.push(ids); } }));
 // Signed in as "me" (this test has no encryption keys, so only the account says who we are)
 jest.mock('./auth', () => ({ useAuth: { getState: () => ({ user: { id: 'me' } }) } }));
+// Encrypting is tested in crypto/: here a chat is encrypted unless a test says it isn't
+const mockSealFor = jest.fn(async (_c: string, p: { t: string }) => ({ text: `e2e1:${p.t}`, hasLink: false }) as { text: string; hasLink: boolean } | null);
+jest.mock('../crypto/messages', () => ({ ...jest.requireActual('../crypto/messages'), sealFor: (c: string, p: any) => mockSealFor(c, p) }));
 
 import { typingNames, useChat } from './chat';
 import { socket } from '../websocket/socket';
@@ -38,13 +41,21 @@ test('sending shows the message at once and the server copy replaces it', async 
   const [pending] = useChat.getState().messages.c1;
   expect(pending.status).toBe('sending');
   await settle();
-  // No encryption keys in this test: sent as plain text (no media, no link flag)
-  expect(sent[0]).toEqual(['c1', pending.id, 'hi', undefined, undefined, undefined]);
+  // Sent encrypted (no media, no link flag)
+  expect(sent[0]).toEqual(['c1', pending.id, 'e2e1:hi', undefined, undefined, false]);
 
   emit({ type: 'message', roomId: 'c1', messageId: 'm1', clientId: pending.id, senderId: 'me', text: 'hi', timestamp: new Date().toISOString(), status: 'sent' });
   const list = useChat.getState().messages.c1;
   expect(list).toHaveLength(1);
   expect(list[0].id).toBe('m1');
+});
+
+test("nothing is sent in a chat that isn't end-to-end encrypted yet", async () => {
+  mockSealFor.mockResolvedValueOnce(null);
+  useChat.getState().send('c1', 'secret', { id: 'me', username: 'me' });
+  await settle();
+  expect(sent).toHaveLength(0);
+  expect(useChat.getState().messages.c1[0].status).toBe('failed');
 });
 
 test('messages from others count as unread unless the chat is open', () => {

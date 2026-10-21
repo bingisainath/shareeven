@@ -77,6 +77,10 @@ class User(Base):
     scan_limit_override = Column(Integer, nullable=True)
     extra_scans = Column(Integer, default=0, server_default="0", nullable=False)
     extra_scans_month = Column(Date, nullable=True)
+    # ShareEven Pro is on until then (paid for or given by an admin; None or past = Free), and the
+    # smallest "days before it ends" reminder already sent for that date (reset when it moves)
+    pro_until = Column(DateTime(timezone=True), nullable=True, index=True)
+    pro_reminded_days = Column(Integer, nullable=True)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
     # Email verification: a 6-digit code is emailed after sign-up (only its hash is stored)

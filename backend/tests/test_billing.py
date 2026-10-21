@@ -104,3 +104,10 @@ async def test_switched_off_currencies_are_kept_but_not_offered(client, db, make
     someone = await make_user()
     pro = (await client.get("/api/v1/billing/plan", headers=someone.headers)).json()["data"]["pro"]
     assert pro["prices"] == {"INR": {"monthly": 9900, "yearly": 99900}}
+
+
+async def test_public_plan_needs_no_sign_in(client, db):
+    """The website's pricing section shows the same prices as the Plan page."""
+    data = (await client.get("/api/v1/billing/public-plan")).json()["data"]
+    assert set(data) >= {"payments_enabled", "prices", "features", "scans_per_month"}
+    assert all(set(p) == {"monthly", "yearly"} for p in data["prices"].values())  # switched-off currencies and flags stay out

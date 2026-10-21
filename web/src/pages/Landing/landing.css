@@ -16,8 +16,8 @@
   --surface-alt: #f8fafc;
   --green: #16a34a;
   --rose: #b4505f;
-  --display: "Manrope", sans-serif;
-  --body: "DM Sans", sans-serif;
+  --display: "Manrope Variable", "Manrope", sans-serif;
+  --body: "DM Sans Variable", "DM Sans", sans-serif;
   --shadow-soft: 0 18px 50px rgba(52, 38, 78, 0.08);
   --shadow-phone: 0 35px 70px rgba(28, 20, 43, 0.34);
 }
@@ -1128,6 +1128,12 @@
 .se-landing .pricing-plus .price strong {
   font-size: 31px;
   color: var(--purple);
+}
+.se-landing .price-note {
+  margin: -6px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .se-landing .price span {
   color: var(--muted);

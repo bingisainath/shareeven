@@ -31,19 +31,23 @@ async def test_reply_preview_in_history(client, make_user, make_dm, add_message)
 async def test_edit_own_message(client, make_user, make_dm, add_message, events):
     a, b = await make_user(), await make_user()
     dm = await make_dm(a, b)
-    msg = await add_message(dm, a, "typo")
+    msg = await add_message(dm, a, "e2e1:typo")
+    # Edits are end-to-end encrypted like new messages: a readable one is refused and nothing changes
     r = await client.patch(f"/api/v1/messages/{msg}", json={"text": "fixed"}, headers=a.headers)
+    assert r.status_code == 422 and "isn't end-to-end encrypted" in r.text
+    assert (await _history(client, b, dm))["data"][-1]["text"] == "e2e1:typo"
+    r = await client.patch(f"/api/v1/messages/{msg}", json={"text": "e2e1:fixed"}, headers=a.headers)
     assert r.status_code == 200
     edited = (await _history(client, b, dm))["data"][-1]
-    assert edited["text"] == "fixed" and edited["edited_at"]
-    assert any(p["type"] == "message_updated" and p["text"] == "fixed" for _, p in events)
+    assert edited["text"] == "e2e1:fixed" and edited["edited_at"]
+    assert any(p["type"] == "message_updated" and p["text"] == "e2e1:fixed" for _, p in events)
 
 
 async def test_cannot_edit_or_delete_others_messages(client, make_user, make_dm, add_message):
     a, b = await make_user(), await make_user()
     dm = await make_dm(a, b)
     msg = await add_message(dm, a, "mine")
-    assert (await client.patch(f"/api/v1/messages/{msg}", json={"text": "x"}, headers=b.headers)).status_code == 403
+    assert (await client.patch(f"/api/v1/messages/{msg}", json={"text": "e2e1:x"}, headers=b.headers)).status_code == 403
     assert (await client.delete(f"/api/v1/messages/{msg}", headers=b.headers)).status_code == 403
 
 

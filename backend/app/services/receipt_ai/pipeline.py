@@ -28,7 +28,7 @@ from app.models.ai import AIModel, AppSetting
 from app.models.expense import ConversationSettings
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
 from app.models.user import User
-from app.services import media_storage
+from app.services import billing, media_storage, payments
 from app.services.money import MoneyError, allocate, format_minor, is_supported, parse_decimal, to_minor
 from app.services.receipt_ai import learning, ocr
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
@@ -84,11 +84,21 @@ async def scan_limit(db: AsyncSession) -> int:
 
 
 async def person_scan_limit(db: AsyncSession, user: User) -> dict:
-    """This person's scans this month: the app's limit or theirs, plus extra scans given this month."""
+    """
+    This person's scans this month: their own limit if an admin set one, else Pro's while they have
+    Pro (never fewer than Free's), else the app's; plus extra scans given this month.
+    """
     app_limit = await scan_limit(db)
-    base = user.scan_limit_override if user.scan_limit_override is not None else app_limit
+    pro = payments.is_pro(user)
+    if user.scan_limit_override is not None:
+        base = user.scan_limit_override
+    elif pro:
+        base = max(app_limit, (await billing.get_plan(db)).scans_per_month)
+    else:
+        base = app_limit
     extra = user.extra_scans if user.extra_scans_month == _month_start().date() else 0
-    return {"limit": base + extra, "app_limit": app_limit, "custom_limit": user.scan_limit_override, "extra_this_month": extra}
+    return {"limit": base + extra, "app_limit": app_limit, "custom_limit": user.scan_limit_override, "extra_this_month": extra,
+            "pro": pro}
 
 
 def _month_start() -> datetime:

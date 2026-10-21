@@ -2,15 +2,18 @@
 // About, FAQ, Contact, Terms of Service and Privacy Policy. One source for the web pages at
 // /about, /faq, /contact, /terms and /privacy; the Android app opens those same pages.
 //
-// Before launch: fill in OPERATOR (who runs ShareEven, by law the "data controller") and have a
-// lawyer read the Terms and the Privacy Policy. These describe what the code does today; change
-// them when that changes (a new provider, analytics, paid plans).
+// OPERATOR is who runs ShareEven (by law the "data controller"): a sole proprietor, the same name and
+// address as the Razorpay KYC. Have a lawyer read the Terms and the Privacy Policy before launch.
+// These describe what the code does today; change them when that changes (a new provider, analytics,
+// prices or refund rules), and update LAST_UPDATED.
 
 export const OPERATOR = {
-  name: '[Your legal name or company]', // TODO before launch
-  address: '[Postal address]', // TODO before launch
-  country: 'India', // governing law and courts; TODO confirm
-  grievanceOfficer: '[Name of the person handling complaints]', // India's DPDP Act asks for one; TODO
+  name: 'Sainath Bingi',
+  // How the law sees ShareEven: run by one person, not a company. Change it here if that changes.
+  form: 'as a sole proprietor',
+  address: '36/21 Rajiv Gruha Kalpa, Jagathgirigutta, Hyderabad 500037, Telangana, India',
+  country: 'India', // governing law and courts
+  grievanceOfficer: 'Sainath Bingi', // India's DPDP Act asks for one
 };
 
 export const CONTACT = {
@@ -19,7 +22,7 @@ export const CONTACT = {
   security: 'security@shareeven.com',
 };
 
-export const LAST_UPDATED = '13 October 2026';
+export const LAST_UPDATED = '20 October 2026';
 
 /** A paragraph, or a bulleted list when it's an array. Email addresses become links. */
 export type Block = string | string[];
@@ -77,7 +80,18 @@ const faq: InfoPage = {
   sections: [
     {
       heading: 'Is ShareEven free?',
-      body: ['Yes. Chats and expenses are free. Receipt scanning includes a free allowance; paid plans for more scans may come later, and you\'ll always see the price before paying.'],
+      body: ['Yes. Chats, groups and expenses are free, and receipt scanning includes a free allowance every month. ShareEven Pro is an optional paid plan with more receipt scans a month; it also helps keep ShareEven independent and ad-free. Prices include taxes.'],
+    },
+    {
+      heading: 'Does Pro renew by itself? How do I cancel it?',
+      body: [
+        'Pro doesn\'t renew, so there\'s nothing to cancel. It\'s paid once for a month or a year, and you\'re never charged again unless you choose to pay again. We remind you 7 days and 1 day before it ends.',
+        'When it ends you go back to Free: your chats, groups and expenses stay exactly as they are, and only the monthly receipt scans go back to the free allowance. Paying again before the end adds the time after your current end date, so you don\'t lose any days.',
+      ],
+    },
+    {
+      heading: 'Can I get a refund for Pro?',
+      body: [`Yes, if you paid by mistake or something went wrong: write to ${CONTACT.support} from the email address on your ShareEven account, with the payment ID from your payment receipt (it starts with "pay_"). The money goes back the way you paid within 3 to 7 working days, and Pro is shortened by the time that was refunded.`],
     },
     {
       heading: 'Can ShareEven read my messages?',
@@ -131,7 +145,7 @@ const contact: InfoPage = {
     { heading: 'Privacy and your data', body: [`Requests about your personal data, or complaints for our grievance officer (${OPERATOR.grievanceOfficer}): ${CONTACT.privacy}`] },
     { heading: 'Abuse', body: ['To report a person, message or group, use Report in the app so we get the details we need. If it\'s urgent, also write to ' + CONTACT.support + '.'] },
     { heading: 'Security', body: [`Found a security problem? Please tell us privately at ${CONTACT.security} before sharing it publicly.`] },
-    { heading: 'Postal address', body: [`${OPERATOR.name}, ${OPERATOR.address}`] },
+    { heading: 'Postal address', body: [`ShareEven (run by ${OPERATOR.name}), ${OPERATOR.address}`] },
   ],
 };
 
@@ -140,7 +154,7 @@ const terms: InfoPage = {
   label: 'Terms of Service',
   title: 'Terms of Service',
   dated: true,
-  intro: `These terms are an agreement between you and ${OPERATOR.name} ("ShareEven", "we") for using the ShareEven apps and website. By creating an account you accept them.`,
+  intro: `These terms are an agreement between you and ShareEven ("we", "us") for using the ShareEven apps and website. ShareEven is run by ${OPERATOR.name} ${OPERATOR.form} in ${OPERATOR.country} (${OPERATOR.address}). By creating an account you accept them.`,
   sections: [
     {
       heading: '1. Who can use ShareEven',
@@ -161,33 +175,50 @@ const terms: InfoPage = {
     },
     {
       heading: '4. Expenses and payments',
-      body: ['ShareEven is a record-keeping tool. It doesn\'t hold, send or receive money, and isn\'t a bank or payment service. Balances are calculated from what members record; check them before paying. Payments you make through other apps (UPI, bank transfer, Revolut, PayPal) are between you and those services. Converted totals use daily exchange rates and are estimates.'],
+      body: [
+        'ShareEven is a record-keeping tool. It doesn\'t hold, send or receive money, and isn\'t a bank or payment service.',
+        'Members add expenses, splits and payments themselves, and whoever adds or changes one is responsible for getting it right. ShareEven doesn\'t check that an expense is real, that its amount or split is correct, or that a recorded payment was really made. Check an expense before you add it, and check your balances before you pay or settle up.',
+        'If members disagree about who owes what, that\'s between them. Each expense\'s history shows who added and changed it, and it can be edited or deleted in the chat. We can\'t settle disputes between members or move money for anyone.',
+        'Payments you make through other apps (UPI, bank transfer, Revolut, PayPal) are between you and those services. Converted totals use daily exchange rates and are estimates.',
+      ],
     },
     {
       heading: '5. Receipt scanning',
       body: [
         'Receipts are read by AI and can contain mistakes. Check the result before saving it.',
-        'Scans are limited each month, and the limit can differ between accounts: we may give testers or people whose scan went wrong extra scans, and we may lower or pause scanning for an account that misuses it. We won\'t lower what you paid for during a billing period. If we offer paid plans, their price and terms will be shown before you buy.',
+        'Scans are limited each month, and the limit can differ between accounts: we may give testers or people whose scan went wrong extra scans, and we may lower or pause scanning for an account that misuses it. We won\'t lower what you paid for during a billing period. ShareEven Pro is covered in section 6.',
       ],
     },
     {
-      heading: '6. End-to-end encryption',
+      heading: '6. ShareEven Pro, payments and refunds',
+      body: [[
+        'What it is: ShareEven Pro is an optional plan that gives more receipt scans each month. Everything else in ShareEven stays free.',
+        'Price: the price is shown before you pay, in Indian rupees (or the currency shown to you), and includes any applicable taxes. A change in price never affects time you have already paid for.',
+        'Payment: you pay once, through our payment partner Razorpay, for one month or one year. We never see your card, UPI or bank details.',
+        'No automatic renewal: Pro is not a subscription. It is never charged again on its own, so there is nothing to cancel. We remind you 7 days and 1 day before it ends. Paying again before then adds the new time after your current end date. When it ends, your account goes back to Free and keeps all your chats, groups and expenses.',
+        `Delivery: Pro is a digital service and nothing is shipped. It turns on as soon as the payment is confirmed, usually straight away. If it hasn't turned on within an hour of paying, write to ${CONTACT.support}.`,
+        `Refunds: if you paid by mistake, were charged twice, or Pro didn't work as described, write to ${CONTACT.support} from the email address on your account, with the payment ID from your receipt (it starts with "pay_"). Approved refunds go back the way you paid within 3 to 7 working days, and Pro is shortened by the time that was refunded. A payment that failed but was taken from your account is refunded in full.`,
+        'If we stop offering Pro, we refund the unused part of what you paid. If we close your account for breaking these terms, the unused part may not be refunded where the law allows that.',
+      ]],
+    },
+    {
+      heading: '7. End-to-end encryption',
       body: ['Your messages are encrypted with keys only your devices hold. If you lose all your signed-in devices and your recovery key, we can\'t recover your messages.'],
     },
     {
-      heading: '7. Availability and changes',
+      heading: '8. Availability and changes',
       body: ['We work to keep ShareEven running and your data safe, but the service is provided "as is" and may sometimes be unavailable. We may change or stop features. For important changes to these terms we\'ll tell you in the app or by email before they apply.'],
     },
     {
-      heading: '8. Closing your account',
+      heading: '9. Closing your account',
       body: ['You can delete your account at any time in Settings. We may suspend or close accounts that break these terms or the law, and will tell you why unless the law or safety prevents it.'],
     },
     {
-      heading: '9. Liability',
+      heading: '10. Liability',
       body: ['As far as the law allows, we aren\'t liable for indirect losses, or for losses from relying on balances, AI results or exchange rates, or from payments you make outside ShareEven. Nothing in these terms limits rights you have under consumer law that can\'t be limited.'],
     },
     {
-      heading: '10. Law and disputes',
+      heading: '11. Law and disputes',
       body: [`These terms are governed by the laws of ${OPERATOR.country}. If you live in the EU or UK, you also keep the protection of your own country's consumer law and can bring a claim there. Please contact us first at ${CONTACT.support}; most problems can be solved quickly.`],
     },
   ],
@@ -198,7 +229,7 @@ const privacy: InfoPage = {
   label: 'Privacy Policy',
   title: 'Privacy Policy',
   dated: true,
-  intro: `This policy explains what ShareEven collects, why, and what you can do about it. ${OPERATOR.name} (${OPERATOR.address}) is responsible for your data (the "data controller" or "data fiduciary").`,
+  intro: `This policy explains what ShareEven collects, why, and what you can do about it. ShareEven, run by ${OPERATOR.name} ${OPERATOR.form} (${OPERATOR.address}), is responsible for your data (the "data controller" or "data fiduciary").`,
   sections: [
     {
       heading: 'What we can\'t see',
@@ -211,6 +242,7 @@ const privacy: InfoPage = {
         'Chats: which chats and groups you\'re in, group names and photos, and when messages were sent and delivered. Not what they say.',
         'Expenses: the expenses, splits and payments recorded in your chats, and receipt photos you scan with what the AI read from them.',
         'Devices and sign-ins: the device or browser name, when it signed in and was last active, the public keys used for encryption, and a notification token if you allow notifications.',
+        'Payments for ShareEven Pro: the plan, amount, currency and date, and the order and payment IDs from Razorpay. Your card, UPI or bank details go straight to Razorpay; we never see them.',
         'Safety: people you\'ve blocked, and reports you send (including a message\'s text only if you choose to share it).',
         'Technical: IP addresses, used briefly to stop abuse (such as password guessing), and error logs.',
       ]],
@@ -229,6 +261,7 @@ const privacy: InfoPage = {
         'Hosting and storage, where our servers and your files are kept.',
         'Google Firebase Cloud Messaging, to deliver notifications. Notifications show who sent a message and the chat name, not what encrypted messages say.',
         'Our email provider, to send sign-in codes and password resets.',
+        'Razorpay, when you pay for ShareEven Pro: it receives your payment details and the name, email and phone number you give at checkout, to take the payment, prevent fraud and meet its legal duties as a payment service in India.',
         'Anthropic, when you scan a receipt: the receipt photo is sent to its AI to read it. It doesn\'t use it to train its models.',
       ], 'We share data with authorities only when the law requires it, and we can only hand over what we have. That never includes the content of encrypted messages.'],
     },
@@ -238,7 +271,7 @@ const privacy: InfoPage = {
     },
     {
       heading: 'How long we keep it',
-      body: ['As long as your account exists. When you delete your account, your profile, devices, keys, backup, settings and what your messages said are removed straight away; server backups are overwritten within 30 days. Expenses and payments you shared with others are kept, shown as "Deleted user", because they\'re part of other people\'s records.'],
+      body: ['As long as your account exists. When you delete your account, your profile, devices, keys, backup, settings and what your messages said are removed straight away; server backups are overwritten within 30 days. Expenses and payments you shared with others are kept, shown as "Deleted user", because they\'re part of other people\'s records. Records of what you paid for ShareEven Pro are kept for as long as tax and accounting law requires, without your profile.'],
     },
     {
       heading: 'Your rights',
