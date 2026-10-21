@@ -366,3 +366,31 @@ async def test_asking_again_replaces_a_devices_link_request(client, make_user):
     sixth = await register(client, user, Device())
     ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
     assert (await client.post(f"{API}/link-requests", json={"device_id": sixth.id, "ek": b64(ek)}, headers=user.headers)).status_code == 429
+
+
+async def test_devices_say_whether_they_are_open_or_unused(client, db, make_user):
+    """The link screen shows which devices can approve right now; Settings offers to remove unused ones."""
+    from datetime import datetime, timedelta, timezone
+    from jose import jwt
+    from sqlalchemy import update
+    from app.models.e2e_v2 import E2EDevice
+    from app.websocket.routes import _touch_devices
+
+    a = await make_user()
+    phone = await register(client, a, Device())
+    rows = lambda: client.get(f"{API}/devices/me", headers=a.headers)  # noqa: E731
+    view = (await rows()).json()["data"]["devices"][0]
+    assert view["active_now"] is True and view["unused"] is False  # just registered
+
+    long_ago = datetime.now(timezone.utc) - timedelta(days=45)
+    await db.execute(update(E2EDevice).where(E2EDevice.device_id == phone.id).values(last_seen_at=long_ago))
+    await db.commit()
+    view = (await rows()).json()["data"]["devices"][0]
+    assert view["active_now"] is False and view["unused"] is True
+
+    # Its sign-in connects over the WebSocket again: open now
+    sid = jwt.get_unverified_claims(a.access_token)["sid"]
+    await _touch_devices(uuid.UUID(a.id), sid)
+    view = (await rows()).json()["data"]["devices"][0]
+    assert view["active_now"] is True and view["unused"] is False
+    await _touch_devices(uuid.UUID(a.id), "not-a-session")  # never raises

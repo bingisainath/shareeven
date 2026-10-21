@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.session import async_session_maker
 from app.websocket.manager import ENVELOPE_FIRST_PROTO, LEGACY_KEY, WSManager
@@ -17,6 +17,7 @@ from app.websocket.streams import RedisStreams
 from app.models.message import Message
 from app.models.conversation_member import ConversationMember
 from app.models.user import User
+from app.models.e2e_v2 import E2EDevice
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
@@ -128,6 +129,26 @@ async def _ws_stop():
     logger.info("WebSocket services stopped")
 
 
+# The apps ping every 30 seconds; an open device is marked as seen about once a minute
+DEVICE_TOUCH_EVERY = 60
+
+
+async def _touch_devices(user_id: uuid.UUID, sid: str | None) -> None:
+    """Mark the devices of this sign-in as seen now (shown as "open now" on the link screen). Never fails the socket."""
+    try:
+        session_id = uuid.UUID(str(sid))
+    except (TypeError, ValueError):
+        return
+    try:
+        async with async_session_maker() as db:
+            await db.execute(update(E2EDevice).where(
+                E2EDevice.user_id == user_id, E2EDevice.session_id == session_id, E2EDevice.removed_at.is_(None),
+            ).values(last_seen_at=datetime.now(timezone.utc)))
+            await db.commit()
+    except Exception:
+        logger.warning("Couldn't mark devices as seen", exc_info=True)
+
+
 @router.websocket("/chat")
 async def ws_chat(ws: WebSocket):
     """Main WebSocket endpoint for chat functionality"""
@@ -178,6 +199,11 @@ async def ws_chat(ws: WebSocket):
     await ws.send_json({"type": "presence", "userIds": online_user_ids})
 
     logger.info("User %s connected (%d socket(s))", user_id_str, socket_count)
+
+    # This sign-in's devices are open right now: a new device being linked can see which ones can approve it
+    loop = asyncio.get_running_loop()
+    await _touch_devices(user_id, sid)
+    last_touch = loop.time()
 
     try:
         while True:
@@ -530,6 +556,9 @@ async def ws_chat(ws: WebSocket):
             # PING/PONG
             if event_type == "ping":
                 await ws.send_json({"type": "pong"})
+                if loop.time() - last_touch >= DEVICE_TOUCH_EVERY:
+                    last_touch = loop.time()
+                    await _touch_devices(user_id, sid)
                 continue
 
             logger.warning("User %s sent unknown event type %r", user_id_str, event_type)

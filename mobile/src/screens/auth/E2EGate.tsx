@@ -30,6 +30,45 @@ import { phoneName } from '../../utils/device';
 import { colors, radius, space } from '../../theme';
 import { showAlert } from '../../components/common/Dialog';
 import { DeviceRemovedError } from '../../crypto/v2/device';
+import { approvers, lastActive } from '../../utils/devices';
+import type { LinkedDevice } from '../../utils/devices';
+
+/**
+ * Which of the account's linked devices can approve this phone, and whether any is open right now. A closed
+ * browser still counts as linked but can't answer until it's opened again.
+ */
+const WhoCanApprove: React.FC = () => {
+  const [devices, setDevices] = useState<LinkedDevice[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get('/e2e/v2/devices/me')
+      .then((r) => { if (alive) setDevices(approvers(r.data.data.devices as LinkedDevice[])); })
+      .catch(() => undefined);
+    load();
+    const timer = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+  if (!devices?.length) return null;
+  const anyOpen = devices.some((d) => d.active_now);
+  return (
+    <View style={styles.approvers}>
+      {!anyOpen && (
+        <Text style={styles.noneOpen} accessibilityRole="alert">
+          None of your linked devices is open right now. Open ShareEven on one of them to approve this phone, or choose “Don't have your other device?” below.
+        </Text>
+      )}
+      <Text style={styles.approversTitle}>YOUR LINKED DEVICES</Text>
+      <View style={styles.approverList}>
+        {devices.map((d, i) => (
+          <View key={d.device_id} style={[styles.approver, i > 0 && styles.approverBorder]}>
+            <Text style={styles.approverName} numberOfLines={1}>{d.name}</Text>
+            <Text style={[styles.approverSeen, d.active_now && styles.approverOpen]}>{d.active_now ? '● ' : ''}{lastActive(d)}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -290,6 +329,7 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
                 <Text style={styles.link}>{showCode ? 'Approve with one tap instead' : 'Use a code instead'}</Text>
               </Pressable>
             )}
+            <WhoCanApprove />
           </>
         ) : denied ? (
           <>
@@ -360,6 +400,15 @@ const styles = StyleSheet.create({
   noDeviceTitle: { fontSize: 15, fontWeight: '600', color: colors.muted900, marginBottom: space(2) },
   remember: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginBottom: space(3) },
   rememberText: { flex: 1, fontSize: 13, color: colors.muted700 },
+  approvers: { alignSelf: 'stretch', marginTop: space(5) },
+  noneOpen: { marginBottom: space(2), padding: space(3), borderRadius: radius.md, backgroundColor: colors.warning50, color: colors.warning700, fontSize: 12, lineHeight: 17 },
+  approversTitle: { marginBottom: space(1.5), fontSize: 11, fontWeight: '700', letterSpacing: 0.6, color: colors.muted500 },
+  approverList: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  approver: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space(3), paddingHorizontal: space(3), paddingVertical: space(2.5) },
+  approverBorder: { borderTopWidth: 1, borderTopColor: colors.muted200 },
+  approverName: { flex: 1, fontSize: 13, color: colors.muted700 },
+  approverSeen: { fontSize: 12, color: colors.muted500 },
+  approverOpen: { color: colors.success700, fontWeight: '600' },
 });
 
 export default E2EGate;

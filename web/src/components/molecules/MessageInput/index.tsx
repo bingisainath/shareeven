@@ -190,6 +190,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
     textareaRef.current?.focus();
   };
 
+  // Pasting a screenshot, photo or copied file attaches it, like picking it with the paperclip
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (!files.length || isEditing) return; // plain text pastes as usual
+    e.preventDefault();
+    addFiles(files, (file) => !VISUAL_TYPES.split(',').includes(file.type)); // photos and videos as media, the rest as documents
+  };
+
   const removeDraft = (index: number) => {
     const removed = drafts[index];
     if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
@@ -236,7 +244,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   };
 
-  const addFiles = (list: FileList | null, asDocument: boolean) => {
+  const addFiles = (list: FileList | File[] | null, asDocumentFor: boolean | ((file: File) => boolean)) => {
     setShowAttachMenu(false);
     if (!list?.length) return;
     const room = MAX_ATTACHMENTS - drafts.length;
@@ -244,6 +252,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (list.length > room) toast.info(`You can send up to ${MAX_ATTACHMENTS} at once`);
     const added: Draft[] = [];
     for (const file of picked) {
+      const asDocument = typeof asDocumentFor === 'function' ? asDocumentFor(file) : asDocumentFor;
       const error = validateFile(file, asDocument);
       if (error) {
         toast.error(`${file.name}: ${error}`);
@@ -459,6 +468,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             value={message}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             placeholder={isEditing ? 'Edit message…' : drafts.length ? 'Add a caption…' : placeholder}
