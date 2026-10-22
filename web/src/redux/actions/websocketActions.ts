@@ -902,6 +902,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       if (fromDevice !== (await myDeviceId())) return; // sent from another of my devices: its envelope shows it
       const local = await confirmOwn(clientId, messageId).catch(() => null);
       const fields = local ? fromLocal(local) : {};
+      // A photo or file: its server address replaces the upload preview (released just below). This
+      // tab already holds the decrypted copy under that address, so it shows without downloading.
+      if (data.mediaUrl) Object.assign(fields, { mediaUrl: data.mediaUrl, ...(data.mediaThumbnail ? { mediaThumbnail: data.mediaThumbnail } : {}) });
       if (hasRow(getState, roomId, clientId)) {
         // Sent from this tab: the optimistic bubble becomes the timeline row
         dispatch(upsertMessage({

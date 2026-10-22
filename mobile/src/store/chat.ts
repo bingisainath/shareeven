@@ -744,8 +744,12 @@ async function onMessageSent(e: WsEvent) {
   const timestamp: string = e.timestamp || new Date().toISOString();
   const set = useChat.setState as unknown as Setter;
   if (hasRow(roomId, clientId)) {
-    // The optimistic bubble becomes the timeline row
-    const fields = local ? fromLocal(local) : {};
+    // The optimistic bubble becomes the timeline row. A photo or file takes its server address instead
+    // of the local copy shown while it uploaded (the decrypted copy is remembered under that address).
+    const fields = {
+      ...(local ? fromLocal(local) : {}),
+      ...(e.mediaUrl ? { mediaUrl: e.mediaUrl as string, ...(e.mediaThumbnail ? { mediaThumbnail: e.mediaThumbnail as string } : {}) } : {}),
+    };
     set((s) => {
       const list = (s.messages[roomId] || []).map((m) =>
         m.id === clientId ? { ...m, ...fields, id: messageId, status: ownStatus(roomId, timestamp, 'sent'), timestamp } : m,
