@@ -143,7 +143,15 @@ const WhoCanApprove: React.FC = () => {
     const timer = setInterval(load, 15000);
     return () => { alive = false; clearInterval(timer); };
   }, []);
-  if (!devices?.length) return null;
+  if (!devices) return null;
+  if (!devices.length) {
+    return (
+      <p className="mt-5 w-full p-3 rounded-lg bg-warning-50 text-warning-800 text-xs leading-relaxed text-left" role="status">
+        All the devices that were linked to your account have logged out, so none can approve this browser.
+        Choose “Don't have your other device?” below to restore from your backup or start fresh.
+      </p>
+    );
+  }
   const anyOpen = devices.some((d) => d.active_now);
   return (
     <div className="mt-5 w-full text-left">

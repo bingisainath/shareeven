@@ -32,6 +32,7 @@ from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
 from app.models.e2e_v2 import E2EDeviceList
 from app.models.user import User
 from app.services.message_service import MessageService
+from app.services import e2e_mailbox
 from app.websocket.routes import publish_users
 from app.schemas.e2e_keys import (
     SetKeysBody, LinkRequestBody, ApproveBody,
@@ -266,7 +267,9 @@ async def conversation_keys(conversation_id: uuid.UUID, current_user: User = Dep
     keys = await _public_keys(db, members)
     ready = {uid: k for uid, k in keys.items() if k["enc"]}
     v1_missing = sorted(str(m) for m in members if str(m) not in ready)
-    with_v2 = set((await db.execute(select(E2EDeviceList.user_id).where(E2EDeviceList.user_id.in_(members)))).scalars().all())
+    # Version 2 needs a signed device list with at least one device that hasn't logged out: someone whose
+    # devices were all logged out can't receive anything until they sign in again
+    with_v2 = {u for u, _ in await e2e_mailbox.listed_devices(db, members)}
     v2_missing = sorted(str(m) for m in members if m not in with_v2)
     return {
         "success": True,

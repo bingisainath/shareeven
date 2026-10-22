@@ -81,11 +81,18 @@ async def queue(db: AsyncSession, sender_id: uuid.UUID, conversation_id: uuid.UU
     targets = {(p.to_user, p.to_device) for p in packets}
     if any(u not in members for u, _ in targets):
         raise MailboxError(422, "Packets can only go to members of this conversation")
-    active = set((await db.execute(select(E2EDevice.user_id, E2EDevice.device_id).where(
-        E2EDevice.user_id.in_({u for u, _ in targets}), E2EDevice.removed_at.is_(None),
-    ))).all())
-    if not targets <= active:
-        raise DevicesChanged([], list(targets - active))
+    known = (await db.execute(select(E2EDevice.user_id, E2EDevice.device_id, E2EDevice.removed_at).where(
+        E2EDevice.user_id.in_({u for u, _ in targets}),
+    ))).all()
+    active = {(u, d) for u, d, removed in known if removed is None}
+    logged_out = {(u, d) for u, d, removed in known if removed is not None}
+    if not targets <= active | logged_out:
+        raise DevicesChanged([], list(targets - active - logged_out))
+    # A device that logged out can never read anything: skip its packets instead of failing the message
+    # (its owner's signed list may still name it until another of their devices signs a new one)
+    packets = [p for p in packets if (p.to_user, p.to_device) in active]
+    if not packets:
+        raise DevicesChanged([], list(targets))
     if complete:
         expected = await listed_devices(db, members) - {(sender_id, from_device)}
         if expected - targets:

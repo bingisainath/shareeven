@@ -73,10 +73,12 @@ async def publish_message_v2(member_ids: list[str], rows: list, meta: dict, clie
     # Every device shows the message once it has decrypted its own packet (like Signal)
     for uid, event in e2e_mailbox.events(rows, meta):
         await publish_users([uid], event)
-    # The sending device (any of its tabs) links its copy to the timeline row
+    # The sending device (any of its tabs) links its copy to the timeline row; a photo's or file's
+    # address replaces the local preview the sender saw while it uploaded
     await publish_users([meta["senderId"]], {
         "type": "message_sent", "roomId": meta["roomId"], "clientId": client_id, "messageId": meta["messageId"],
         "timestamp": meta["timestamp"], "fromDevice": meta["fromDevice"], "status": "sent",
+        **({"mediaUrl": meta["mediaUrl"], "mediaThumbnail": meta.get("mediaThumbnail")} if meta.get("mediaUrl") else {}),
     })
 
 
