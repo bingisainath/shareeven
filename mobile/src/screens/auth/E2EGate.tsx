@@ -48,7 +48,16 @@ const WhoCanApprove: React.FC = () => {
     const timer = setInterval(load, 15000);
     return () => { alive = false; clearInterval(timer); };
   }, []);
-  if (!devices?.length) return null;
+  if (!devices) return null;
+  if (!devices.length) {
+    return (
+      <View style={styles.approvers}>
+        <Text style={styles.noneOpen} accessibilityRole="alert">
+          All the devices that were linked to your account have logged out, so none can approve this phone. Choose “Don't have your other device?” below to restore from your backup or start fresh.
+        </Text>
+      </View>
+    );
+  }
   const anyOpen = devices.some((d) => d.active_now);
   return (
     <View style={styles.approvers}>
