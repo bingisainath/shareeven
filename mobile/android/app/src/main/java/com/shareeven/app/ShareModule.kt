@@ -81,36 +81,46 @@ class ShareModule(context: ReactApplicationContext) : ReactContextBaseJavaModule
       val out = Arguments.createMap()
       intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }?.let { out.putString("text", it.take(4000)) }
       val files = Arguments.createArray()
-      val folder = File(context.cacheDir, "shared").apply { mkdirs() }
       for (uri in streams(intent).take(MAX_FILES)) {
-        val resolver = context.contentResolver
-        val type = resolver.getType(uri) ?: intent.type?.takeIf { !it.contains('*') } ?: "application/octet-stream"
-        var name: String? = null
-        var size = -1L
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
-          if (c.moveToFirst()) {
-            name = c.getString(0)
-            if (!c.isNull(1)) size = c.getLong(1)
-          }
-        }
-        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(type) ?: "bin"
-        val target = File(folder, "${UUID.randomUUID()}.$extension")
-        val input = resolver.openInputStream(uri) ?: continue
-        input.use { source -> target.outputStream().use { source.copyTo(it) } }
-        files.pushMap(Arguments.createMap().apply {
-          putString("uri", Uri.fromFile(target).toString())
-          putString("type", type)
-          putString("name", (name ?: target.name).take(200))
-          putDouble("size", (if (size >= 0) size else target.length()).toDouble())
-        })
+        copyToCache(context, uri, "shared", intent.type)?.let { files.pushMap(it) }
       }
       out.putArray("files", files)
       return out
+    }
+
+    /**
+     * Copy a content:// file into this app's cache (another app's address is readable only for a short
+     * while) and describe it for JavaScript: { uri, type, name, size }. Null if it can't be read.
+     * Also used for pasted images and files (PasteModule).
+     */
+    fun copyToCache(context: Context, uri: Uri, folderName: String, fallbackType: String? = null): WritableMap? {
+      val folder = File(context.cacheDir, folderName).apply { mkdirs() }
+      val resolver = context.contentResolver
+      val type = resolver.getType(uri) ?: fallbackType?.takeIf { !it.contains('*') } ?: "application/octet-stream"
+      var name: String? = null
+      var size = -1L
+      resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+        if (c.moveToFirst()) {
+          name = c.getString(0)
+          if (!c.isNull(1)) size = c.getLong(1)
+        }
+      }
+      val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(type) ?: "bin"
+      val target = File(folder, "${UUID.randomUUID()}.$extension")
+      val input = resolver.openInputStream(uri) ?: return null
+      input.use { source -> target.outputStream().use { source.copyTo(it) } }
+      return Arguments.createMap().apply {
+        putString("uri", Uri.fromFile(target).toString())
+        putString("type", type)
+        putString("name", (name ?: target.name).take(200))
+        putDouble("size", (if (size >= 0) size else target.length()).toDouble())
+      }
     }
   }
 }
 
 class SharePackage : ReactPackage {
-  override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> = listOf(ShareModule(context))
+  // Sharing into the app, and pasting images and files into a chat (PasteModule)
+  override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> = listOf(ShareModule(context), PasteModule(context))
   override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }

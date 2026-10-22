@@ -1,7 +1,8 @@
 // src/components/Composer.tsx
 // Message box like the web app's: text, attachments (camera, photos & videos, documents) with a
-// caption each, and voice notes. An empty box shows a microphone instead of Send.
-import React, { useState } from 'react';
+// caption each, and voice notes. An empty box shows a microphone instead of Send. Pasted images and
+// files (Android) are added as attachments too (src/share/paste.ts).
+import React, { useEffect, useRef, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { cameraAllowed } from '../../utils/camera';
@@ -13,6 +14,8 @@ import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import { colors, radius, space } from '../../theme';
 import { formatDuration } from '../../utils/time';
 import { showAlert } from '../common/Dialog';
+import { MESSAGE_INPUT_ID, onPastedFiles, pastedAttachment } from '../../share/paste';
+import type { PastedFile } from '../../share/paste';
 
 const MAX = 10;
 
@@ -70,6 +73,20 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
     if (!drafts.length) { setSelected(0); list[0].caption = text; onChangeText(''); }
     setDrafts((d) => [...d, ...list.slice(0, room)]);
   };
+
+  // Pasted images and files become attachments like picked ones (not while editing a sent message)
+  const addPasted = useRef<(files: PastedFile[]) => void>(() => undefined);
+  addPasted.current = (files) => {
+    if (editing) return;
+    const list: Draft[] = [];
+    for (const f of files) {
+      const result = pastedAttachment(f);
+      if ('problem' in result) showAlert(f.name || 'File', result.problem);
+      else list.push({ ...result, id: `a${++counter}` });
+    }
+    add(list);
+  };
+  useEffect(() => onPastedFiles((files) => addPasted.current(files)), []);
 
   const pickMedia = async (source: 'camera' | 'library') => {
     setMenu(false);
@@ -204,6 +221,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
           maxLength={5000}
           style={styles.input}
           accessibilityLabel="Message"
+          nativeID={MESSAGE_INPUT_ID}
         />
         {showMic ? (
           <Pressable onPress={async () => { const problem = await recorder.start(); if (problem) showAlert(problem); }}
