@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed (monochrome) launcher icon, Android 13+: outlined bubble and S, drawn from shape only -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256" android:pivotY="268"
+        android:scaleX="0.78" android:scaleY="0.78"
+        android:translateY="-12">
+        <path
+            android:pathData="M184 128H328A72 72 0 0 1 400 200V280A72 72 0 0 1 328 352H228L150 408L166 346A72 72 0 0 1 112 280V200A72 72 0 0 1 184 128Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="26"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M298 196C286 182 270 176 254 176C230 176 212 190 212 209C212 231 233 237 256 243C281 249 302 257 302 279C302 297 284 306 258 306C237 306 220 299 208 285"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="24"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M256 156V326"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="22"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

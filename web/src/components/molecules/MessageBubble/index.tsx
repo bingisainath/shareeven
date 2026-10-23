@@ -2,7 +2,7 @@
 import React, { useRef, useState } from 'react';
 import { Avatar } from '../../atoms';
 import Icon from '../../atoms/Icon';
-import { Download, Flag, Forward, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
+import { Download, Flag, Forward, Loader2, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
 import VoiceNotePlayer from '../VoiceNotePlayer';
 import { formatMessageTime } from '../../../utils/dateFormat';
 import { blurUri, formatFileSize, mediaBoxStyle } from '../../../utils/media';
@@ -126,8 +126,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const encryptedVideo = mediaType === 'video' && !!mediaKey;
   const media = useMediaSrc(encryptedVideo && !playVideo ? undefined : mediaUrl, mediaType === 'file' ? undefined : mediaKey, mediaMime, mediaV2);
   const poster = useMediaSrc(mediaThumbnail, thumbKey, 'image/jpeg', thumbV2);
-  const saveEncryptedFile = () => downloadDecrypted(mediaUrl!, mediaKey!, mediaMime, mediaFilename || 'file', mediaV2)
-    .catch(() => toast.error("Couldn't open this file. Try again"));
+  const [saving, setSaving] = useState(false); // the file is downloading: its icon spins (the toast shows how far)
+  const saveEncryptedFile = () => {
+    if (saving) return;
+    setSaving(true);
+    downloadDecrypted(mediaUrl!, mediaKey!, mediaMime, mediaFilename || 'file', mediaV2).finally(() => setSaving(false));
+  };
   // Photos and videos fill the bubble with an even, thin frame; a captionless photo shows the time on the picture
   const visual = !isDeleted && !!mediaUrl && (mediaType === 'image' || mediaType === 'video');
   const timeOnMedia = visual && mediaType === 'image' && !text;
@@ -318,8 +322,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                       : <span className={`flex items-center gap-2 text-xs py-2 ${isSent ? 'text-white/70' : 'text-muted-500'}`}><Lock className="w-3.5 h-3.5" />{media.failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</span>
                   )}
                   {mediaType === 'file' && mediaKey && (
-                    <button type="button" onClick={saveEncryptedFile} title="Save" className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left ${isSent ? 'bg-white/15 hover:bg-white/25' : 'bg-muted-100 hover:bg-muted-200'}`}>
-                      <Icon name="attach" size={20} />
+                    <button type="button" onClick={saveEncryptedFile} title={saving ? 'Downloading…' : 'Save'} aria-busy={saving} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left ${isSent ? 'bg-white/15 hover:bg-white/25' : 'bg-muted-100 hover:bg-muted-200'}`}>
+                      {saving ? <Loader2 className="w-5 h-5 animate-spin" aria-label="Downloading" /> : <Icon name="attach" size={20} />}
                       <span className="flex flex-col min-w-0">
                         <span className="text-sm font-medium truncate max-w-[12rem]">{mediaFilename || 'File'}</span>
                         {mediaSize ? <span className="text-[11px] opacity-70">{formatFileSize(mediaSize)}</span> : null}

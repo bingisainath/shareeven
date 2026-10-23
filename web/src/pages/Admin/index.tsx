@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Sparkles, Trash2, Undo2, User, Users, X } from 'lucide-react';
+import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Sparkles, Trash2, Undo2, Users, X } from 'lucide-react';
 import { useAuth } from '../../app/AuthProvider';
 import { BrandMark } from '../../components/organisms/AuthLayout';
 import { ReportsReview } from '../../components/organisms/SafetySettings';
@@ -18,7 +18,7 @@ import { REPORT_REASONS, safetyService } from '../../services/safety.service';
 import type { ReportReason } from '../../services/safety.service';
 import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview, ScanAllowance } from '../../services/admin.service';
 import { parseApiError } from '../../utils/apiError';
-import { avatarTone } from '../../utils/avatarTone';
+import { avatarTone, PERSON_SHAPES } from '../../utils/avatarTone';
 import { formatPrice } from '../../utils/plans';
 
 type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'billing' | 'activity';
@@ -269,8 +269,10 @@ const PeopleTab: React.FC<{ openUser: string | null; setOpenUser: (id: string | 
 const Avatar: React.FC<{ a: AccountSummary; size?: number }> = ({ a, size = 36 }) => (
   a.avatar
     ? <img src={a.avatar} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />
-    : <span className="rounded-full grid place-items-center flex-shrink-0" style={{ width: size, height: size, backgroundColor: avatarTone(nameOf(a)).bg, color: avatarTone(nameOf(a)).fg }}>
-        <User style={{ width: size * 0.48, height: size * 0.48 }} strokeWidth={1.9} aria-hidden />
+    : <span className="rounded-full overflow-hidden flex-shrink-0" style={{ width: size, height: size, backgroundColor: avatarTone(nameOf(a)).bg, color: avatarTone(nameOf(a)).fg }}>
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden>
+          {PERSON_SHAPES.map((p) => <path key={p.d} d={p.d} />)}
+        </svg>
       </span>
 );
 

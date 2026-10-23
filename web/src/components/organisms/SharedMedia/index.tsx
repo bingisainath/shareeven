@@ -2,7 +2,7 @@
 // "Media, links and docs" from chat info: everything shared in the conversation, newest first.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Download, ExternalLink, FileText, Link2, Play } from 'lucide-react';
+import { ArrowLeft, Download, ExternalLink, FileText, Link2, Loader2, Play } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '../../../utils/axios';
 import { parseApiError } from '../../../utils/apiError';
@@ -121,6 +121,7 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [viewer, setViewer] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState<Set<string>>(new Set()); // files downloading (their buttons spin)
 
   const load = useCallback(async (more = false) => {
     setLoading(true);
@@ -215,13 +216,20 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
                     </span>
                     <button
                       type="button"
-                      onClick={() => (i.media_key
-                        ? downloadDecrypted(i.media_url!, i.media_key, i.media_mime, i.media_filename || 'file', i.media_v2)
-                        : downloadMedia(i.media_url!, i.media_filename || 'file')).catch(() => toast.error("Couldn't download it"))}
-                      className="p-2 rounded-lg text-primary-700 hover:bg-primary-50"
+                      disabled={downloading.has(i.message_id)}
+                      onClick={() => {
+                        if (!i.media_key) {
+                          downloadMedia(i.media_url!, i.media_filename || 'file').catch(() => toast.error("Couldn't download it"));
+                          return;
+                        }
+                        setDownloading((d) => new Set(d).add(i.message_id));
+                        downloadDecrypted(i.media_url!, i.media_key, i.media_mime, i.media_filename || 'file', i.media_v2) // shows its own progress
+                          .finally(() => setDownloading((d) => { const next = new Set(d); next.delete(i.message_id); return next; }));
+                      }}
+                      className="p-2 rounded-lg text-primary-700 hover:bg-primary-50 disabled:hover:bg-transparent"
                       aria-label={`Download ${i.media_filename || 'file'}`}
                     >
-                      <Download className="w-4 h-4" />
+                      {downloading.has(i.message_id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     </button>
                   </div>
                 )}

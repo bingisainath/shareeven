@@ -227,6 +227,10 @@ const markReady = (id: string, uri: string) => {
   ready.set(id, uri);
   if (ready.size > MAX_READY) ready.delete(ready.keys().next().value as string);
 };
+/** Who wants to know how far a download has got (0 to 1), by cache id: also a download already under way. */
+const progressListeners = new Map<string, Set<(fraction: number) => void>>();
+const reportProgress = (id: string, fraction: number) => progressListeners.get(id)?.forEach((listen) => listen(fraction));
+
 const cacheId = (url: string, key: string) => hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
 
 /** A file on this phone (the copy being sent), not a server address. */
@@ -236,12 +240,20 @@ const isLocalFile = (url: string) => /^(file|content):\/\//.test(url);
  * Download an encrypted file, decrypt it into the cache and return its file:// URI.
  * The same file (address + key) is only downloaded and decrypted once.
  */
-export function decryptedFile(url: string, key: string, mime?: string, v2?: V2File): Promise<string> {
+export function decryptedFile(url: string, key: string, mime?: string, v2?: V2File, onProgress?: (fraction: number) => void): Promise<string> {
   // Our own photo while it's being sent: the plain local copy, nothing to download or decrypt
   if (isLocalFile(url)) return Promise.resolve(url);
   const id = cacheId(url, key);
+  if (onProgress) {
+    if (!progressListeners.has(id)) progressListeners.set(id, new Set());
+    progressListeners.get(id)!.add(onProgress);
+  }
+  const forget = () => { if (onProgress) progressListeners.get(id)?.delete(onProgress); };
   const existing = inFlight.get(id);
-  if (existing) return existing;
+  if (existing) {
+    existing.then(forget, forget);
+    return existing;
+  }
   const work = (async () => {
     await ensureDir();
     const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
@@ -250,13 +262,26 @@ export function decryptedFile(url: string, key: string, mime?: string, v2?: V2Fi
   })();
   inFlight.set(id, work);
   work.then((uri) => { if (!ready.has(id)) markReady(id, uri); }, () => inFlight.delete(id));
+  work.then(forget, forget);
   return work;
+}
+
+/** Follow a react-native-blob-util download (when it reports progress) as a fraction from 0 to 1. */
+export function watchProgress(task: unknown, onProgress: (fraction: number) => void): void {
+  const t = task as { progress?: (config: { interval: number }, cb: (received: number | string, total: number | string) => void) => unknown };
+  if (typeof t.progress !== 'function') return;
+  t.progress({ interval: 150 }, (received, total) => {
+    const all = Number(total);
+    if (all > 0) onProgress(Math.min(1, Number(received) / all));
+  });
 }
 
 async function downloadAndDecrypt(url: string, key: string, target: string, id: string, v2?: V2File): Promise<string> {
   const started = Date.now();
   const download = `${DIR}/${id}.download`;
-  const response = await ReactNativeBlobUtil.config({ path: download }).fetch('GET', mediaUrl(url)!);
+  const task = ReactNativeBlobUtil.config({ path: download }).fetch('GET', mediaUrl(url)!);
+  watchProgress(task, (fraction) => reportProgress(id, fraction));
+  const response = await task;
   if (response.info().status !== 200) {
     await fs.unlink(download).catch(() => undefined);
     throw new Error(`Download failed (${response.info().status})`);

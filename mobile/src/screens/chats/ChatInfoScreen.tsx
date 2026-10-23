@@ -7,6 +7,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { Archive, ArchiveRestore, Ban, Bell, Flag, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
+import MediaViewer from '../../components/chat/MediaViewer';
 import EditableField from '../../components/common/EditableField';
 import EncryptionInfo from '../../components/chat/EncryptionInfo';
 import UserSearch from '../../components/chat/UserSearch';
@@ -43,6 +44,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
   const [busyPhoto, setBusyPhoto] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +66,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   const isAdmin = details.my_role === 'admin';
   const other = details.members.find((m) => !m.is_me);
   const title = isGroup ? details.title : other?.name || other?.username;
+  const photoUrl = (isGroup ? details.avatar_url : other?.avatar) || undefined;
 
   const blocked = !!chat?.isBlocked;
   const setBlock = (block: boolean) => {
@@ -101,6 +104,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   };
 
   const changePhoto = () => showAlert('Group photo', undefined, [
+    ...(details.avatar_url ? [{ text: 'View photo', onPress: () => setViewingPhoto(true) }] : []),
     { text: 'Choose photo', onPress: pickPhoto },
     ...(details.avatar_url ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => photoTask(() => saveGroup({ avatar_url: '' })) }] : []),
     { text: 'Cancel', style: 'cancel' as const },
@@ -160,6 +164,11 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <MediaViewer
+        items={photoUrl ? [{ id: photoUrl, url: photoUrl, type: 'image', filename: title || undefined, senderName: title || undefined }] : []}
+        index={viewingPhoto && photoUrl ? 0 : null}
+        onClose={() => setViewingPhoto(false)}
+      />
       <ScrollView>
         <View style={styles.hero}>
           {isGroup && isAdmin ? (
@@ -168,7 +177,9 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
               <View style={styles.camera}>{busyPhoto ? <ActivityIndicator size="small" color={colors.white} /> : <Camera size={16} color={colors.white} />}</View>
             </Pressable>
           ) : (
-            <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} group={isGroup} />
+            <Pressable onPress={() => setViewingPhoto(true)} disabled={!photoUrl} accessibilityLabel="View photo">
+              <Avatar uri={photoUrl} name={title} size={88} group={isGroup} />
+            </Pressable>
           )}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{isGroup ? `Group · ${details.members.length} members` : `@${other?.username}`}</Text>

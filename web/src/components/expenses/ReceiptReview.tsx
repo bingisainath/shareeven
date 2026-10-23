@@ -12,6 +12,7 @@ import { RECEIPT_CATEGORIES, categoryLabel } from '../../utils/receiptCategories
 import type { Expense, Receipt, ReceiptAdjustment, ReceiptUpdate } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
+import MediaViewer from '../organisms/MediaViewer';
 import { formatMinor, parseMajor, toMajorString } from '../../utils/money';
 import { CurrencySelect, displayName, firstName, Money, MoneyInput, PersonToggle, Switch } from './shared';
 import type { Member } from './shared';
@@ -609,9 +610,12 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
       </div>
 
       {photo && (
-        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setPhoto(null)}>
-          <img src={resolveMediaUrl(photo)} alt="Receipt" className="max-w-full max-h-full object-contain" />
-        </div>
+        <MediaViewer
+          images={server.images.map((src, i) => ({ id: src, url: resolveMediaUrl(src)!, filename: `Receipt ${i + 1}`, senderName: description || 'Receipt' }))}
+          index={Math.max(0, server.images.indexOf(photo))}
+          onIndexChange={(i) => setPhoto(server.images[i])}
+          onClose={() => setPhoto(null)}
+        />
       )}
     </div>
   );

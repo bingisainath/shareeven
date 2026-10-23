@@ -1,6 +1,7 @@
 // src/utils/media.ts
 import type React from 'react';
 import { API_BASE_URL } from '../config/env';
+import { downloadStarted } from './downloadToast';
 import type { MediaType } from '../services/websocket.service';
 
 // Keep in sync with backend MAX_UPLOAD_SIZE / MAX_VIDEO_UPLOAD_SIZE / MAX_FILE_UPLOAD_SIZE
@@ -206,6 +207,25 @@ export async function compressImage(file: File, quality: UploadQuality): Promise
   return new File([blob], replaceExtension(file.name, type), { type, lastModified: Date.now() });
 }
 
+const EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
+  'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/webm': 'weba', 'audio/ogg': 'ogg',
+  'application/pdf': 'pdf', 'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+const extensionOf = (name: string) => /\.([a-z0-9]{2,5})$/i.exec(name)?.[1];
+
+/**
+ * A download name with an extension the device recognises: "ShareEven photo" sent as image/png
+ * becomes "ShareEven photo.png". Without a type, the extension of the file's address is used.
+ */
+export function withExtension(name: string, mime?: string, url?: string): string {
+  if (extensionOf(name)) return name;
+  const ext = (mime && EXTENSIONS[mime]) || extensionOf((url || '').split('?')[0]);
+  return ext && ext !== 'enc' ? `${name}.${ext}` : name;
+}
+
 /**
  * Save a media file to the device under its own name. The server sends it as an attachment
  * (?download=1&name=...), so the browser downloads it directly: no CORS, no copy in memory.
@@ -213,13 +233,15 @@ export async function compressImage(file: File, quality: UploadQuality): Promise
 export async function downloadMedia(url: string, filename: string): Promise<void> {
   const target = new URL(resolveMediaUrl(url)!, window.location.href);
   target.searchParams.set('download', '1');
-  target.searchParams.set('name', filename);
+  const name = withExtension(filename, undefined, url);
+  target.searchParams.set('name', name);
   const link = document.createElement('a');
   link.href = target.toString();
   link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
   link.remove();
+  downloadStarted(name);
 }
 
 /** 75 -> "1:15" */

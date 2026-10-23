@@ -1,9 +1,8 @@
 // src/components/atoms/Avatar.tsx
-// A profile photo, or with no photo a person icon (a group icon for groups) on a soft pastel colour.
+// A profile photo, or with no photo a solid person (two for a group) on a soft colour, like WhatsApp's.
 import React, { useEffect, useState } from 'react';
-import { User, Users } from 'lucide-react';
 import { resolveMediaUrl } from '../../../utils/media';
-import { avatarTone } from '../../../utils/avatarTone';
+import { avatarTone, GROUP_SHAPES, PERSON_SHAPES } from '../../../utils/avatarTone';
 
 interface AvatarProps {
   src?: string | null;
@@ -29,7 +28,6 @@ const Avatar: React.FC<AvatarProps> = ({
   useEffect(() => setFailed(false), [src]);
   const photo = !failed ? resolveMediaUrl(src) : null;
   const tone = avatarTone(alt);
-  const Icon = group ? Users : User;
 
   const sizes: Record<string, string> = {
     xs: 'w-6 h-6',
@@ -63,9 +61,11 @@ const Avatar: React.FC<AvatarProps> = ({
           role="img"
           aria-label={alt}
           style={{ backgroundColor: tone.bg, color: tone.fg }}
-          className={`${sizes[size]} rounded-full flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
+          className={`${sizes[size]} block rounded-full overflow-hidden select-none ${showRing ? 'relative z-10' : ''}`}
         >
-          <Icon className="w-[48%] h-[48%]" strokeWidth={1.9} aria-hidden />
+          <svg viewBox="0 0 24 24" className="w-full h-full" fill="currentColor" aria-hidden>
+            {(group ? GROUP_SHAPES : PERSON_SHAPES).map((p) => <path key={p.d} d={p.d} opacity={p.opacity} />)}
+          </svg>
         </span>
       )}
       

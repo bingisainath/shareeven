@@ -13,7 +13,8 @@ import { isV2Marker, localFor } from '../../crypto/v2-platform/chat';
 import { useAuth } from '../../store/auth';
 import { colors, space } from '../../theme';
 import { formatDuration, formatSize } from '../../utils/time';
-import { saveToPhone } from '../../utils/save';
+import { saveWithFeedback } from '../../utils/save';
+import { downloadLabel, useDownloadOf } from '../../store/downloads';
 import type { AppStackParams } from '../../navigation/types';
 import { Segmented } from '../expenses/AddExpenseScreen';
 import { showAlert } from '../../components/common/Dialog';
@@ -92,6 +93,25 @@ const Thumb: React.FC<{ item: Item; size: number }> = ({ item, size }) => {
   const video = item.media_type === 'video';
   const { src } = useMediaSrc(video ? item.media_thumbnail || undefined : item.media_url, video ? item.thumb_key : item.media_key, video ? 'image/jpeg' : item.media_mime, video ? item.thumb_v2 : item.media_v2);
   return src ? <Image source={{ uri: src }} style={{ width: size, height: size }} /> : <View style={{ width: size, height: size }} />;
+};
+
+/** A file's Save button: spins (with how far) while it downloads. */
+const SaveFileButton: React.FC<{ item: Item }> = ({ item }) => {
+  const download = useDownloadOf(item.media_url);
+  if (download) {
+    return (
+      <View style={styles.saving} accessibilityLabel={downloadLabel(download)}>
+        <ActivityIndicator size="small" color={colors.primary700} />
+        {download.progress !== undefined && <Text style={styles.sub}>{Math.floor(download.progress * 100)}%</Text>}
+      </View>
+    );
+  }
+  return (
+    <Pressable onPress={() => saveWithFeedback(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime, item.media_v2)}
+      hitSlop={10} accessibilityLabel="Save to phone">
+      <Download size={20} color={colors.primary700} />
+    </Pressable>
+  );
 };
 
 const SharedVoiceNote: React.FC<{ item: Item }> = ({ item }) => {
@@ -192,10 +212,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
                     <Text style={styles.name} numberOfLines={1}>{item.media_filename || 'File'}</Text>
                     <Text style={styles.sub}>{formatSize(item.media_size)} · {who(item)}</Text>
                   </View>
-                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime, item.media_v2).catch(() => showAlert("Couldn't save it"))}
-                    hitSlop={10} accessibilityLabel="Save to phone">
-                    <Download size={20} color={colors.primary700} />
-                  </Pressable>
+                  <SaveFileButton item={item} />
                 </>
               )}
             </View>
@@ -208,6 +225,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
 };
 
 const styles = StyleSheet.create({
+  saving: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   container: { flex: 1, backgroundColor: colors.white },
   tabs: { alignItems: 'center', paddingVertical: space(3) },
   empty: { textAlign: 'center', color: colors.muted500, marginTop: space(10) },

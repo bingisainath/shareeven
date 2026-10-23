@@ -5,7 +5,8 @@
 import { useEffect, useState } from 'react';
 import { decryptFile, encryptFile, fromBase64, jpegOrientation, newFileKey, stripJpegMetadata, toBase64 } from './e2e';
 import { decryptMedia } from './v2/media';
-import { resolveMediaUrl } from '../utils/media';
+import { resolveMediaUrl, withExtension } from '../utils/media';
+import { withDownloadToast } from '../utils/downloadToast';
 
 /** v2 files (PMV2 format) also carry the hash and real size from their pointer. */
 export interface V2File { sha256: string; size: number }
@@ -29,19 +30,58 @@ const MAX_OBJECT_URLS = 150;
 
 const cacheKey = (url: string, key: string) => `${url.split('?')[0]}#${key}`;
 
-/** Download an encrypted file, decrypt it, and return a blob: URL for <img>, <video>, <audio> or a link. */
-export function decryptedUrl(url: string, key: string, mime = 'application/octet-stream', v2?: V2File): Promise<string> {
+/** Who wants to know how far a download has got (0 to 1), by cache key: also a download already under way. */
+const progressListeners = new Map<string, Set<(fraction: number) => void>>();
+const reportProgress = (id: string, fraction: number) => progressListeners.get(id)?.forEach((listen) => listen(fraction));
+
+/** Read a response to the end, reporting progress when its size is known. */
+async function readAll(response: Response, onProgress: (fraction: number) => void): Promise<Uint8Array> {
+  const total = Number(response.headers.get('content-length')) || 0;
+  if (!response.body || !total) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    onProgress(Math.min(1, received / total));
+  }
+  const out = new Uint8Array(received);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+/**
+ * Download an encrypted file, decrypt it, and return a blob: URL for <img>, <video>, <audio> or a link.
+ * `onProgress`: how much has downloaded (0 to 1), also when this file was already downloading.
+ */
+export function decryptedUrl(url: string, key: string, mime = 'application/octet-stream', v2?: V2File, onProgress?: (fraction: number) => void): Promise<string> {
   const id = cacheKey(url, key);
+  if (onProgress) {
+    if (!progressListeners.has(id)) progressListeners.set(id, new Set());
+    progressListeners.get(id)!.add(onProgress);
+  }
+  const forget = () => { if (onProgress) progressListeners.get(id)?.delete(onProgress); };
   const cached = objectUrls.get(id);
-  if (cached) return cached;
+  if (cached) {
+    cached.then(forget, forget);
+    return cached;
+  }
   const promise = (async () => {
     const response = await fetch(resolveMediaUrl(url)!);
     if (!response.ok) throw new Error(`Download failed (${response.status})`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await readAll(response, (fraction) => reportProgress(id, fraction));
     const plain = v2 ? decryptMedia(bytes, { key, sha256: v2.sha256, size: v2.size }) : decryptFile(fromBase64(key), bytes);
     return URL.createObjectURL(new Blob([plain], { type: mime }));
   })();
   promise.then((u) => readyUrls.set(id, u), () => objectUrls.delete(id));
+  promise.then(forget, forget);
   objectUrls.set(id, promise);
   if (objectUrls.size > MAX_OBJECT_URLS) {
     const [oldest, value] = objectUrls.entries().next().value as [string, Promise<string>];
@@ -87,12 +127,20 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
 }
 
 /** Save a decrypted copy under its original name. */
+/**
+ * Save a decrypted copy under its original name, with a toast that shows it downloading (with the
+ * percentage) and says when it's done or why it failed. The file must download and decrypt in the
+ * page before the browser can save it, so without this nothing showed for a big file.
+ */
 export async function downloadDecrypted(url: string, key: string, mime: string | undefined, filename: string, v2?: V2File): Promise<void> {
-  const src = await decryptedUrl(url, key, mime, v2);
-  const link = document.createElement('a');
-  link.href = src;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  const name = withExtension(filename, mime);
+  await withDownloadToast(name, async (onProgress) => {
+    const src = await decryptedUrl(url, key, mime, v2, onProgress);
+    const link = document.createElement('a');
+    link.href = src;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  });
 }
