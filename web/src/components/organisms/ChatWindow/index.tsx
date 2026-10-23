@@ -330,10 +330,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleDownload = (message: Message) => {
     if (!message.mediaUrl) return;
-    (message.mediaKey
-      ? downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download', message.mediaV2)
-      : downloadMedia(message.mediaUrl, message.mediaFilename || 'download'))
-      .catch(() => toast.error("Couldn't download it. Try again"));
+    if (message.mediaKey) downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download', message.mediaV2); // shows its own progress
+    else downloadMedia(message.mediaUrl, message.mediaFilename || 'download').catch(() => toast.error("Couldn't download it. Try again"));
   };
 
   const handleReply = (message: Message) => {

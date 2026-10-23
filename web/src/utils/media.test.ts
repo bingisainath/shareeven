@@ -1,4 +1,4 @@
-import { formatFileSize, mediaBoxStyle, messagePreview, resolveMediaUrl, validateFile } from './media';
+import { formatFileSize, mediaBoxStyle, messagePreview, resolveMediaUrl, validateFile, withExtension } from './media';
 
 const fileOf = (type: string, size: number, name = 'f') =>
   new File([new Uint8Array(1)], name, { type }) as File & { size: number };
@@ -66,5 +66,19 @@ describe('formatFileSize', () => {
     expect(formatFileSize(512)).toBe('512 B');
     expect(formatFileSize(2048)).toBe('2 KB');
     expect(formatFileSize(5 * 1024 * 1024)).toBe('5.0 MB');
+  });
+});
+
+describe('withExtension', () => {
+  it('adds the extension of the file type to a name without one', () => {
+    expect(withExtension('ShareEven photo', 'image/png')).toBe('ShareEven photo.png');
+    expect(withExtension('ShareEven video', 'video/quicktime')).toBe('ShareEven video.mov');
+  });
+  it('keeps a name that already has one', () => {
+    expect(withExtension('holiday.jpeg', 'image/png')).toBe('holiday.jpeg');
+  });
+  it("uses the address's extension when the type isn't known, but never .enc", () => {
+    expect(withExtension('Receipt 1', undefined, '/api/v1/media/receipts/ab.jpg?exp=1&sig=x')).toBe('Receipt 1.jpg');
+    expect(withExtension('photo', undefined, '/api/v1/media/chat/ab.enc?exp=1')).toBe('photo');
   });
 });

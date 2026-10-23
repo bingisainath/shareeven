@@ -172,7 +172,11 @@ async function uploadV2(file: { uri: string; type: string }, kind: 'image' | 'vi
 
 export async function sendMediaV2(
   v2: V2, chat: ChatInfo, clientId: string, file: LocalFile, kind: 'image' | 'video' | 'audio' | 'file', caption: string,
-  options: { width?: number; height?: number; duration?: number; replyTo?: ReplyPreview | null; signal?: AbortSignal; onProgress?: (p: number) => void },
+  options: {
+    width?: number; height?: number; duration?: number; replyTo?: ReplyPreview | null; signal?: AbortSignal; onProgress?: (p: number) => void;
+    /** A video's preview frame, already made (and shown) by the caller; made here when not given. */
+    poster?: { path: string; width?: number; height?: number } | null;
+  },
 ): Promise<{ sent: boolean; posterUri?: string; width?: number; height?: number }> {
   let thumb: MediaPointer['thumb'];
   let width = options.width;
@@ -181,7 +185,8 @@ export async function sendMediaV2(
   let blur = kind === 'image' ? await blurPreview(file.uri) : undefined;
   if (kind === 'video') {
     try {
-      const poster = await createThumbnail({ url: file.uri, timeStamp: 500, format: 'jpeg' });
+      const poster = options.poster || (options.poster === null ? null : await createThumbnail({ url: file.uri, timeStamp: 500, format: 'jpeg' }));
+      if (!poster) throw new Error('no preview frame');
       width = poster.width || width;
       height = poster.height || height;
       posterUri = poster.path;

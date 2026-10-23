@@ -11,6 +11,7 @@ import type { AppStackParams } from './src/navigation/types';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { DialogHost } from './src/components/common/Dialog';
+import DownloadsBar from './src/components/common/DownloadsBar';
 import IncomingShare from './src/share/IncomingShare';
 import ErrorBoundary from './src/components/common/ErrorBoundary';
 import { pruneCaches } from './src/crypto/media';
@@ -51,6 +52,8 @@ export default function App() {
         </ErrorBoundary>
         {/* "Share to ShareEven" from the gallery and other apps */}
         <IncomingShare openChat={(conversationId) => (navigationRef.isReady() ? navigationRef.navigate('Chat', { conversationId }) : undefined)} />
+        {/* Files downloading to the phone, and how far */}
+        <DownloadsBar />
       </View>
       <DialogHost />
     </SafeAreaProvider>

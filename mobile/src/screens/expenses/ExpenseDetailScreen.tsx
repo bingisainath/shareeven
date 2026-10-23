@@ -17,6 +17,7 @@ import CategoryIcon from '../../components/expenses/CategoryIcon';
 import { Segmented } from './AddExpenseScreen';
 import { memberName, useChatMoney, useExpenseChanges } from '../../hooks/useMembers';
 import { showAlert } from '../../components/common/Dialog';
+import MediaViewer from '../../components/chat/MediaViewer';
 
 const ACTION_ICONS = { created: Plus, updated: PenLine, deleted: Trash2, restored: RotateCcw, locked: Lock, unlocked: LockOpen };
 
@@ -28,6 +29,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const [tab, setTab] = useState('details');
   const [receipt, setReceipt] = useState<Receipt | null>(null); // explains each share of a receipt expense
   const [open, setOpen] = useState<string | null>(null); // whose items are shown
+  const [photo, setPhoto] = useState<number | null>(null); // receipt photo shown full screen
   const { members } = useChatMoney(expense?.conversation_id);
 
   const load = useCallback(async () => {
@@ -140,7 +142,11 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
             <>
               <Text style={[styles.section, { marginTop: space(4) }]}>Receipt</Text>
               <View style={styles.images}>
-                {expense.receipt_images.map((src) => <Image key={src} source={{ uri: mediaUrl(src) }} style={styles.receipt} />)}
+                {expense.receipt_images.map((src, i) => (
+                  <Pressable key={src} onPress={() => setPhoto(i)} accessibilityLabel={`Open receipt photo ${i + 1}`}>
+                    <Image source={{ uri: mediaUrl(src) }} style={styles.receipt} />
+                  </Pressable>
+                ))}
               </View>
             </>
           )}
@@ -183,6 +189,11 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
           <Button title="Restore" icon={RotateCcw} onPress={() => act(() => expenseService.restore(expense.id))} />
         )}
       </View>
+      <MediaViewer
+        items={expense.receipt_images.map((src, i) => ({ id: src, url: src, type: 'image' as const, filename: `Receipt ${i + 1}`, senderName: expense.description || 'Receipt' }))}
+        index={photo}
+        onClose={() => setPhoto(null)}
+      />
     </ScrollView>
   );
 };

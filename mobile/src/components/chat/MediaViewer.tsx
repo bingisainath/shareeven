@@ -13,6 +13,7 @@ import Video from 'react-native-video';
 import { Lock } from 'lucide-react-native';
 import { useMediaSrc } from '../../crypto/media';
 import { saveWithFeedback } from '../../utils/save';
+import { useDownloadOf } from '../../store/downloads';
 import { clockTime } from '../../utils/time';
 import ZoomableImage from './ZoomableImage';
 
@@ -48,6 +49,7 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
   const [chrome, setChrome] = useState(true); // the top bar; a tap on a photo hides or shows it
   const [saving, setSaving] = useState(false);
   const item = items[current];
+  const download = useDownloadOf(item?.url); // this photo or video saving: how far
 
   // The row of pages slides by `offset`: -current * width at rest, plus the finger while swiping
   const offset = useRef(new Animated.Value(-(index ?? 0) * width)).current;
@@ -114,7 +116,12 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
             <Pressable onPress={() => onForward(item.id)} hitSlop={10} style={styles.icon} accessibilityLabel="Forward"><Forward size={22} color="#fff" /></Pressable>
           )}
           <Pressable onPress={save} disabled={saving} hitSlop={10} style={styles.icon} accessibilityLabel="Save to phone">
-            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Download size={22} color="#fff" />}
+            {saving || download ? (
+              <View style={styles.saving}>
+                <ActivityIndicator size="small" color="#fff" />
+                {download?.progress !== undefined && download.progress < 1 && <Text style={styles.sub}>{Math.floor(download.progress * 100)}%</Text>}
+              </View>
+            ) : <Download size={22} color="#fff" />}
           </Pressable>
         </SafeAreaView>}
       </View>
@@ -164,6 +171,7 @@ const ViewerPage: React.FC<SwipeProps & { media: ViewerItem; width: number; heig
 
 const styles = StyleSheet.create({
   pending: { alignItems: 'center', gap: 8 },
+  saving: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   backdrop: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
   row: { flex: 1 },
   page: { position: 'absolute', top: 0 },

@@ -442,7 +442,30 @@ const uploads = new Map<string, {
   controller?: AbortController;
   sent?: OutgoingMedia; // uploaded already: a retry only resends the message
   sealed?: { text: string; hasLink: boolean }; // encrypted chats: the envelope carrying the file's key
+  poster?: VideoPoster | null; // a video's preview frame: made once, shown while it uploads
 }>();
+
+export interface VideoPoster { path: string; width?: number; height?: number }
+
+/**
+ * A video's preview frame, made before the upload starts and put on the sending bubble at once.
+ * Made only at the end, the bubble sat blank and the wrong shape while uploading (camera videos
+ * report landscape sizes for portrait clips), then jumped when it was sent.
+ */
+async function posterFor(clientId: string): Promise<VideoPoster | null> {
+  const job = uploads.get(clientId);
+  if (!job) return null;
+  if (job.poster !== undefined) return job.poster;
+  const set = useChat.setState as unknown as Setter;
+  try {
+    const p = await createThumbnail({ url: job.attachment.file.uri, timeStamp: 500, format: 'jpeg' });
+    job.poster = { path: p.path, width: p.width || job.attachment.width, height: p.height || job.attachment.height };
+    updateMessage(set, job.conversationId, clientId, { mediaThumbnail: p.path, mediaWidth: job.poster.width, mediaHeight: job.poster.height });
+  } catch {
+    job.poster = null; // no preview frame: the video still sends
+  }
+  return job.poster;
+}
 
 async function uploadAndSend(clientId: string) {
   const job = uploads.get(clientId);
@@ -454,13 +477,14 @@ async function uploadAndSend(clientId: string) {
   updateMessage(set, conversationId, clientId, { status: 'sending', uploadFailed: undefined, uploadProgress: 0 });
   try {
     const kind = attachment.quality === 'original' && attachment.kind !== 'audio' ? 'file' : attachment.kind;
+    const poster = kind === 'video' && !job.sent ? await posterFor(clientId) : null;
     // Encryption v2: the file (PMV2) and its key travel only to the chat's devices
     const chat = chatInfo(conversationId);
     const v2 = job.sent ? null : await v2For(chat).catch(() => null);
     if (v2) {
       updateMessage(set, conversationId, clientId, { e2eVersion: 2, localId: clientId });
       const result = await sendMediaV2(v2, chat, clientId, attachment.file, kind, attachment.caption, {
-        width: attachment.width, height: attachment.height, duration: attachment.duration, replyTo, signal: controller.signal,
+        width: attachment.width, height: attachment.height, duration: attachment.duration, replyTo, signal: controller.signal, poster,
         onProgress: (percent) => updateMessage(set, conversationId, clientId, { uploadProgress: Math.min(percent, 99) }),
       });
       if (result.posterUri) updateMessage(set, conversationId, clientId, { mediaThumbnail: result.posterUri, mediaWidth: result.width, mediaHeight: result.height });
@@ -480,9 +504,8 @@ async function uploadAndSend(clientId: string) {
       let posterKey: string | undefined;
       let width = attachment.width;
       let height = attachment.height;
-      if (kind === 'video') {
+      if (kind === 'video' && poster) {
         try {
-          const poster = await createThumbnail({ url: attachment.file.uri, timeStamp: 500, format: 'jpeg' });
           width = poster.width || width;
           height = poster.height || height;
           const sealedPoster = await encryptForUpload({ uri: poster.path, type: 'image/jpeg' });
@@ -490,7 +513,6 @@ async function uploadAndSend(clientId: string) {
           posterUrl = up.url;
           posterKey = sealedPoster.key;
           await rememberDecrypted(up.url, sealedPoster.key, poster.path, 'image/jpeg');
-          updateMessage(set, conversationId, clientId, { mediaThumbnail: poster.path, mediaWidth: width, mediaHeight: height });
         } catch {
           // no preview frame: the video still sends
         }

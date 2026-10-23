@@ -11,6 +11,7 @@ import { expenseService } from '../../services/expense.service';
 import type { Expense, HistoryEntry, Receipt } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
+import MediaViewer from '../organisms/MediaViewer';
 import { shareLines } from '../../utils/shareBreakdown';
 import AddExpenseSheet from './AddExpenseSheet';
 import { displayName, Money, Segmented, Sheet, useChatMoney, useExpenseChanges } from './shared';
@@ -257,9 +258,12 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
       )}
 
       {photo && (
-        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setPhoto(null)}>
-          <img src={resolveMediaUrl(photo)} alt="Receipt" className="max-w-full max-h-full object-contain" />
-        </div>
+        <MediaViewer
+          images={expense.receipt_images.map((src, i) => ({ id: src, url: resolveMediaUrl(src)!, filename: `Receipt ${i + 1}`, senderName: expense.description || 'Receipt' }))}
+          index={Math.max(0, expense.receipt_images.indexOf(photo))}
+          onIndexChange={(i) => setPhoto(expense.receipt_images[i])}
+          onClose={() => setPhoto(null)}
+        />
       )}
     </Sheet>
   );

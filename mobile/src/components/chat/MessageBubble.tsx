@@ -1,6 +1,6 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, CheckCheck, Clock, Download, FileText, Lock, Play, ReceiptText, RotateCw, ShieldAlert, X, XCircle } from 'lucide-react-native';
 import { useMediaSrc } from '../../crypto/media';
 import { UNREADABLE_TEXT } from '../../crypto/messages';
@@ -9,6 +9,7 @@ import { colors, radius, space } from '../../theme';
 import { clockTime, formatDuration, formatSize } from '../../utils/time';
 import { blurUri } from '../../utils/blurPreview';
 import VoiceNote from './VoiceNote';
+import { downloadLabel, useDownloadOf } from '../../store/downloads';
 import Avatar from '../common/Avatar';
 
 interface Props {
@@ -34,6 +35,7 @@ const MessageBubble: React.FC<Props> = ({
   // End-to-end encrypted media is downloaded and decrypted on the phone first (plain media: as is)
   const image = useMediaSrc(m.mediaType === 'image' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime, m.mediaV2);
   const poster = useMediaSrc(m.mediaType === 'video' ? m.mediaThumbnail : undefined, m.thumbKey, 'image/jpeg', m.thumbV2);
+  const download = useDownloadOf(m.mediaType === 'file' ? m.mediaUrl : undefined); // saving this file: how far
   const audio = useMediaSrc(m.mediaType === 'audio' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime, m.mediaV2);
 
   if (m.messageType === 'system') {
@@ -144,17 +146,19 @@ const MessageBubble: React.FC<Props> = ({
                 </View>
               )}
               {m.mediaUrl && !unreadable && m.mediaType === 'file' && (
-                <Pressable onPress={onOpenFile} disabled={m.uploadProgress !== undefined} style={[styles.file, mine ? styles.fileMine : styles.fileOther]}
-                  accessibilityLabel={`Save ${m.mediaFilename || 'file'}`}>
+                <Pressable onPress={onOpenFile} disabled={m.uploadProgress !== undefined || !!download} style={[styles.file, mine ? styles.fileMine : styles.fileOther]}
+                  accessibilityLabel={download ? downloadLabel(download) : `Save ${m.mediaFilename || 'file'}`}>
                   <FileText size={22} color={fg} />
                   <View style={{ flexShrink: 1 }}>
                     <Text style={[styles.fileName, { color: fg }]} numberOfLines={1}>{m.mediaFilename || 'File'}</Text>
                     <Text style={[styles.fileSize, { color: sub }]}>
-                      {m.uploadProgress !== undefined ? `Uploading ${m.uploadProgress}%` : formatSize(m.mediaSize)}
+                      {m.uploadProgress !== undefined ? `Uploading ${m.uploadProgress}%` : download ? downloadLabel(download) : formatSize(m.mediaSize)}
                     </Text>
                   </View>
                   {m.uploadProgress !== undefined ? (
                     <Pressable onPress={onCancelUpload} hitSlop={8} accessibilityLabel="Cancel upload"><X size={18} color={fg} /></Pressable>
+                  ) : download ? (
+                    <ActivityIndicator size="small" color={fg} />
                   ) : (
                     <Download size={18} color={fg} />
                   )}
