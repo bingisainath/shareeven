@@ -215,6 +215,19 @@ export async function encryptFileV2(file: { uri: string; type: string }): Promis
 }
 
 const inFlight = new Map<string, Promise<string>>();
+/**
+ * Files already decrypted (or our own, just sent), by cache id: shown on a bubble's first frame.
+ * Without it, a sent photo blinked when its bubble became the server's copy, and every reopened
+ * chat showed placeholders while each photo was looked up on disk.
+ */
+const ready = new Map<string, string>();
+const MAX_READY = 500;
+const markReady = (id: string, uri: string) => {
+  ready.delete(id);
+  ready.set(id, uri);
+  if (ready.size > MAX_READY) ready.delete(ready.keys().next().value as string);
+};
+const cacheId = (url: string, key: string) => hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
 
 /** A file on this phone (the copy being sent), not a server address. */
 const isLocalFile = (url: string) => /^(file|content):\/\//.test(url);
@@ -226,7 +239,7 @@ const isLocalFile = (url: string) => /^(file|content):\/\//.test(url);
 export function decryptedFile(url: string, key: string, mime?: string, v2?: V2File): Promise<string> {
   // Our own photo while it's being sent: the plain local copy, nothing to download or decrypt
   if (isLocalFile(url)) return Promise.resolve(url);
-  const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
+  const id = cacheId(url, key);
   const existing = inFlight.get(id);
   if (existing) return existing;
   const work = (async () => {
@@ -236,7 +249,7 @@ export function decryptedFile(url: string, key: string, mime?: string, v2?: V2Fi
     return inTurn(() => downloadAndDecrypt(url, key, target, id, v2));
   })();
   inFlight.set(id, work);
-  work.catch(() => inFlight.delete(id));
+  work.then((uri) => { if (!ready.has(id)) markReady(id, uri); }, () => inFlight.delete(id));
   return work;
 }
 
@@ -304,7 +317,9 @@ async function downloadAndDecrypt(url: string, key: string, target: string, id: 
 
 /** We just encrypted and uploaded this file ourselves: show it from the local copy instead of downloading. */
 export async function rememberDecrypted(url: string, key: string, localUri: string, mime?: string): Promise<void> {
-  const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
+  const id = cacheId(url, key);
+  // The bubble keeps showing the very file it showed while sending: same address, so no reload or blink
+  markReady(id, localUri);
   await ensureDir();
   const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
   await fs.cp(plainPath(localUri), target).catch((e) => {
@@ -320,9 +335,10 @@ export async function rememberDecrypted(url: string, key: string, localUri: stri
 export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2File): { src?: string; failed: boolean } {
   const [state, setState] = useState<{ src?: string; failed: boolean; for?: string }>({ failed: false });
   const id = url && key ? `${url.split('?')[0]}#${key}` : undefined;
+  const known = url && key && !isLocalFile(url) ? ready.get(cacheId(url, key)) : undefined;
 
   useEffect(() => {
-    if (!url || !key || isLocalFile(url)) return;
+    if (!url || !key || isLocalFile(url) || known) return;
     let alive = true;
     decryptedFile(url, key, mime, v2)
       .then((src) => alive && setState({ src, failed: false, for: id }))
@@ -334,10 +350,11 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, key, mime, id, v2?.sha256]);
+  }, [url, key, mime, id, v2?.sha256, known]);
 
   if (!url) return { failed: false };
   if (!key || isLocalFile(url)) return { src: isLocalFile(url) ? url : mediaUrl(url), failed: false };
+  if (known) return { src: known, failed: false };
   return state.for === id ? { src: state.src, failed: state.failed } : { failed: false };
 }
 
