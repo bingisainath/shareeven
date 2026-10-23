@@ -62,7 +62,7 @@ jest.mock('react-native-blob-util', () => {
 });
 jest.mock('../config', () => ({ mediaUrl: (u: string) => u }));
 
-import { decryptedFile, encryptFileV2, encryptForUpload } from './media';
+import { decryptedFile, encryptFileV2, encryptForUpload, rememberDecrypted, useMediaSrc } from './media';
 
 // Jest's toEqual on multi-megabyte arrays enumerates every index as a string key: compare directly
 const same = (a: Uint8Array | undefined, b: Uint8Array) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
@@ -130,5 +130,24 @@ describe('v2 (PMV2) files', () => {
     mockServer.body = mockFiles.get(sealed.uri.replace('file://', ''))!.slice();
     mockServer.body[30] ^= 1;
     await expect(decryptedFile('/api/v1/media/v2-bad.enc', sealed.key, 'image/png', { sha256: sealed.sha256, size: sealed.size })).rejects.toThrow();
+  });
+});
+
+describe('a photo we just sent', () => {
+  it("shows on its bubble's first frame once it has the server's address (no blink)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const React = require('react');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { create, act } = require('react-test-renderer');
+    mockFiles.set('/picked/IMG_1.jpg', new Uint8Array([1, 2, 3]));
+    const seen: (string | undefined)[] = [];
+    const Bubble = ({ url }: { url: string }) => {
+      seen.push(useMediaSrc(url, 'k3y', 'image/jpeg').src);
+      return null;
+    };
+    await rememberDecrypted('/api/v1/media/chat/sent.enc', 'k3y', 'file:///picked/IMG_1.jpg', 'image/jpeg');
+    act(() => { create(React.createElement(Bubble, { url: '/api/v1/media/chat/sent.enc?exp=1&sig=s' })); });
+    // the very first render already has it, and it's the same file the sending bubble showed
+    expect(seen[0]).toBe('file:///picked/IMG_1.jpg');
   });
 });

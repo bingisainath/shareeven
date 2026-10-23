@@ -1,6 +1,6 @@
 // src/screens/chats/ChatScreen.tsx
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,7 +15,7 @@ import AlbumGrid, { groupAlbums } from '../../components/chat/AlbumGrid';
 import Composer from '../../components/chat/Composer';
 import ForwardSheet from '../../components/chat/ForwardSheet';
 import MediaViewer, { ViewerItem } from '../../components/chat/MediaViewer';
-import { saveToPhone } from '../../utils/save';
+import { saveWithFeedback } from '../../utils/save';
 import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
 import { safetyApi } from '../../api/safety';
@@ -185,14 +185,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     if (index >= 0) setViewerIndex(index);
   };
 
-  const save = async (m: Message) => {
-    try {
-      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime, m.mediaV2);
-      if (Platform.OS === 'android') showAlert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
-    } catch {
-      showAlert("Couldn't save it", 'Check your connection and try again.');
-    }
-  };
+  const save = (m: Message) =>
+    saveWithFeedback(m.mediaUrl!, m.mediaFilename || `ShareEven ${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime, m.mediaV2);
 
   const onChangeText = (value: string) => {
     setText(value);
@@ -380,7 +374,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ref={list}
             data={rows}
             inverted
-            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'unread' ? 'unread-line' : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
+            // Our own messages keep the key they were sent with: becoming the server's row doesn't rebuild (and blink) the bubble
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'unread' ? 'unread-line' : r.kind === 'album' ? `album-${r.messages[0].clientId || r.messages[0].id}` : r.message.clientId || r.message.id)}
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}

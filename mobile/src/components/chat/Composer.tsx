@@ -3,7 +3,7 @@
 // caption each, and voice notes. An empty box shows a microphone instead of Send. Pasted images and
 // files (Android) are added as attachments too (src/share/paste.ts).
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { cameraAllowed } from '../../utils/camera';
 import { keepLocalCopy, pick, types } from '@react-native-documents/picker';
@@ -88,10 +88,24 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
   };
   useEffect(() => onPastedFiles((files) => addPasted.current(files)), []);
 
-  const pickMedia = async (source: 'camera' | 'library') => {
+  // Android's camera opens for a photo or for a video, never both ('mixed' only takes photos there): ask which
+  const openCamera = () => {
+    setMenu(false);
+    if (Platform.OS !== 'android') {
+      pickMedia('camera');
+      return;
+    }
+    showAlert('Camera', undefined, [
+      { text: 'Take photo', onPress: () => pickMedia('camera', 'photo') },
+      { text: 'Record video', onPress: () => pickMedia('camera', 'video') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const pickMedia = async (source: 'camera' | 'library', only?: 'photo' | 'video') => {
     setMenu(false);
     const options = {
-      mediaType: 'mixed' as const,
+      mediaType: only || ('mixed' as const),
       maxWidth: hd ? 4096 : 1600, // photos are shrunk like WhatsApp unless HD is on
       maxHeight: hd ? 4096 : 1600,
       quality: (hd ? 0.9 : 0.8) as 0.9 | 0.8,
@@ -238,7 +252,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenu(false)}>
           <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-            <MenuRow icon={Camera} title="Camera" hint="Take a photo or video" onPress={() => pickMedia('camera')} />
+            <MenuRow icon={Camera} title="Camera" hint="Take a photo or video" onPress={openCamera} />
             <MenuRow icon={ImageIcon} title="Photos & videos" hint={`Up to ${MAX} at once`} onPress={() => pickMedia('library')} />
             <MenuRow icon={FileText} title="Document" hint="Any file up to 150 MB, or an image at full quality" onPress={pickDocuments} />
             <View style={styles.hdRow}>
