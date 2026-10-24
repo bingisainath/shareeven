@@ -44,7 +44,7 @@ const AddExpenseSheet: React.FC<Props> = ({ conversationId, currentUserId, expen
               role="tab"
               aria-selected={tab === o.value}
               onClick={() => setTab(o.value)}
-              className={`flex items-center gap-3 p-3.5 rounded-[14px] border text-left transition-colors ${
+              className={`flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 p-3 sm:p-3.5 rounded-[14px] border text-left transition-colors ${
                 tab === o.value ? 'border-primary-400 bg-primary-50' : 'border-muted-200 bg-white hover:bg-muted-50'
               }`}
             >
@@ -53,7 +53,7 @@ const AddExpenseSheet: React.FC<Props> = ({ conversationId, currentUserId, expen
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-bold text-muted-900">{o.label}</span>
-                <span className="block text-xs text-muted-500 truncate">{o.hint}</span>
+                <span className="block text-xs text-muted-500 sm:truncate">{o.hint}</span>
               </span>
             </button>
           ))}

@@ -195,43 +195,49 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {previews.map((src, i) => (
-          <div key={src} className="relative aspect-[3/4] rounded-xl overflow-hidden bg-muted-100">
-            <img src={src} alt={`Receipt part ${i + 1}`} className="w-full h-full object-cover" />
-            <button
-              type="button"
-              aria-label="Remove photo"
-              onClick={() => setFiles((f) => f.filter((_, n) => n !== i))}
-              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm"
-            >
-              ×
-            </button>
+      {previews.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {previews.map((src, i) => (
+            <div key={src} className="relative aspect-[3/4] rounded-xl overflow-hidden bg-muted-100">
+              <img src={src} alt={`Receipt part ${i + 1}`} className="w-full h-full object-cover" />
+              <span className="absolute bottom-1 left-1 px-1.5 rounded-md bg-black/60 text-white text-[11px]">{i + 1}</span>
+              <button
+                type="button"
+                aria-label="Remove photo"
+                onClick={() => setFiles((f) => f.filter((_, n) => n !== i))}
+                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {files.length < MAX_PHOTOS && (
+        <div>
+          <p className="mb-2 text-sm font-medium text-muted-700">
+            {files.length ? `Add another part (${files.length} of ${MAX_PHOTOS})` : 'Add a photo of the bill'}
+          </p>
+          <div className="grid grid-cols-2 gap-2.5">
+            {[
+              { label: 'Take photo', icon: Camera, ref: cameraRef },
+              { label: 'Gallery', icon: Images, ref: galleryRef },
+            ].map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                onClick={() => o.ref.current?.click()}
+                className={`flex items-center justify-center rounded-[14px] border-2 border-dashed border-primary-200 bg-primary-50/40 hover:border-primary-400 hover:bg-primary-50 text-muted-800 font-medium transition-colors ${
+                  files.length ? 'gap-2 py-3 text-sm' : 'flex-col gap-2 py-7'
+                }`}
+              >
+                <o.icon className={`${files.length ? 'w-5 h-5' : 'w-8 h-8'} text-primary-600`} strokeWidth={1.5} aria-hidden />
+                {o.label}
+              </button>
+            ))}
           </div>
-        ))}
-        {files.length < MAX_PHOTOS && (
-          <div className="aspect-[3/4] rounded-xl border-2 border-dashed border-muted-300 flex flex-col overflow-hidden text-muted-500">
-            <span className="pt-2 text-center text-xs">{files.length ? 'Add another part' : 'Photo of the bill'}</span>
-            <button
-              type="button"
-              onClick={() => cameraRef.current?.click()}
-              className="flex-1 flex flex-col items-center justify-center gap-1 hover:bg-primary-50"
-            >
-              <Camera className="w-7 h-7 text-primary-600" strokeWidth={1.5} aria-hidden />
-              <span className="text-sm">Take photo</span>
-            </button>
-            <div className="mx-3 border-t border-muted-200" />
-            <button
-              type="button"
-              onClick={() => galleryRef.current?.click()}
-              className="flex-1 flex flex-col items-center justify-center gap-1 hover:bg-primary-50"
-            >
-              <Images className="w-7 h-7 text-primary-600" strokeWidth={1.5} aria-hidden />
-              <span className="text-sm">Gallery</span>
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
       {/* capture opens the phone's camera straight away; the second input lets you pick saved photos */}
       <input
         ref={cameraRef}
