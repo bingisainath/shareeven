@@ -1,6 +1,7 @@
 // src/content/infoPages.ts
-// About, FAQ, Contact, Terms of Service and Privacy Policy. One source for the web pages at
-// /about, /faq, /contact, /terms and /privacy; the Android app opens those same pages.
+// About, FAQ, Contact, Terms of Service, Privacy Policy and Delete your account. One source for the
+// web pages at /about, /faq, /contact, /terms, /privacy and /delete-account; the Android app opens
+// those same pages. /delete-account is the link on the Google Play listing: it must stay public.
 //
 // OPERATOR is who runs ShareEven (by law the "data controller"): a sole proprietor, the same name and
 // address as the Razorpay KYC. Have a lawyer read the Terms and the Privacy Policy before launch.
@@ -33,7 +34,7 @@ export interface InfoSection {
 }
 
 export interface InfoPage {
-  slug: 'about' | 'faq' | 'contact' | 'terms' | 'privacy';
+  slug: 'about' | 'faq' | 'contact' | 'terms' | 'privacy' | 'delete-account';
   label: string; // link text
   title: string;
   intro?: string;
@@ -297,6 +298,59 @@ const privacy: InfoPage = {
   ],
 };
 
-export const INFO_PAGES: InfoPage[] = [about, faq, contact, terms, privacy];
+const deleteAccount: InfoPage = {
+  slug: 'delete-account',
+  label: 'Delete account',
+  title: 'Delete your ShareEven account',
+  dated: true,
+  intro: `How to delete your ShareEven account and its data, and what happens to it. ShareEven is run by ${OPERATOR.name} ${OPERATOR.form} (${OPERATOR.address}).`,
+  sections: [
+    {
+      heading: 'In the ShareEven app (Android)',
+      body: [[
+        'Open ShareEven and sign in.',
+        'Go to Settings and tap your name at the top to open Account.',
+        'Tap Delete account.',
+        'Enter your password and type DELETE, then tap Delete my account.',
+      ]],
+    },
+    {
+      heading: 'On the website',
+      body: [[
+        'Sign in at shareeven.com.',
+        'Go to Settings, then Account.',
+        'Under Delete account, tap Delete account, enter your password, type DELETE and confirm.',
+      ], 'Before deleting, you can save a copy of your data with Download my data on the same page.'],
+    },
+    {
+      heading: "Can't sign in?",
+      body: [`Write to ${CONTACT.privacy} from the email address on your account and ask us to delete it. We'll confirm it's your account, delete it and reply within 30 days.`],
+    },
+    {
+      heading: 'What is deleted',
+      body: ['Straight away:', [
+        'your profile: name, username, email, photo, bio and payment usernames;',
+        'every phone and browser signed in to the account (they are signed out), with their encryption keys;',
+        'your encrypted chat backup and your settings;',
+        'what your messages said, and the photos, videos, voice notes and files you sent;',
+        'your receipt-scanning settings and store discount rules.',
+      ], 'You leave all your groups. Copies in our server backups are overwritten within 30 days.'],
+    },
+    {
+      heading: 'What is kept',
+      body: [[
+        "Expenses and payments you shared with other people stay, shown as \"Deleted user\", because they are part of other people's balances. So do receipt photos scanned for those expenses.",
+        "Your messages stay in the timeline as deleted, with nothing of what they said, so other people's replies still make sense.",
+        'Records of what you paid for ShareEven Pro (plan, amount, date and payment ID), without your profile, for as long as tax and accounting law requires.',
+      ], 'You can sign up again later with the same email address, as a new account.'],
+    },
+    {
+      heading: 'Delete some data and keep your account',
+      body: ['You can delete your own messages (Delete for everyone), delete or edit expenses you added, remove your profile photo and change your profile at any time, without deleting your account.'],
+    },
+  ],
+};
+
+export const INFO_PAGES: InfoPage[] = [about, faq, contact, terms, privacy, deleteAccount];
 
 export const infoPage = (slug: string) => INFO_PAGES.find((p) => p.slug === slug);
