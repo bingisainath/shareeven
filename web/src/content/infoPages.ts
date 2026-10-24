@@ -345,8 +345,13 @@ const deleteAccount: InfoPage = {
       ], 'You can sign up again later with the same email address, as a new account.'],
     },
     {
-      heading: 'Delete some data and keep your account',
-      body: ['You can delete your own messages (Delete for everyone), delete or edit expenses you added, remove your profile photo and change your profile at any time, without deleting your account.'],
+      heading: 'Delete some of your data and keep your account',
+      body: ['You can delete these yourself at any time, in the app or on the website:', [
+        'A message or file you sent: press and hold it (on the website, open its menu), then tap Delete for everyone. What it said and any photo, video, voice note or file attached are removed from our server straight away, and it shows as deleted for everyone in the chat.',
+        'Your profile photo: Settings → tap your name → Profile → tap your photo → Remove photo. The photo is removed from our server straight away.',
+        'Your name, bio and payment usernames: Settings → tap your name → Profile, then clear or change them.',
+        'An expense you added: open it and tap Delete. It leaves everyone\'s balances at once, but stays in the chat\'s history (marked deleted, with its receipt photo) so it can be restored if it was a mistake, because other people rely on it.',
+      ], `For anything else, or to ask us to delete specific data for you, write to ${CONTACT.privacy} from the email address on your account. We reply within 30 days. Copies in our server backups are overwritten within 30 days.`],
     },
   ],
 };

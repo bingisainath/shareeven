@@ -164,6 +164,7 @@ async def update_me(
         current_user.name = payload.name or None
     if payload.bio is not None:
         current_user.bio = payload.bio or None
+    old_avatar = current_user.avatar
     if payload.avatar is not None:
         if payload.avatar and not media_storage.is_stored_image_url(payload.avatar):
             raise HTTPException(status_code=400, detail="Avatar must be an uploaded image")
@@ -176,6 +177,13 @@ async def update_me(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
+
+    # A removed or replaced photo is deleted from the server too (the delete-account page says so),
+    # unless something else still uses the same file
+    if old_avatar and old_avatar != current_user.avatar:
+        in_use = (await db.execute(select(User.id).where(User.avatar == old_avatar).limit(1))).scalar_one_or_none()
+        if in_use is None:
+            account.remove_files(await account.unused_files(db, {old_avatar}))
 
     return APIResponse(
         success=True,
