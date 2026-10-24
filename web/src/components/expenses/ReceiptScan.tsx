@@ -2,7 +2,7 @@
 // Pick receipt photos -> upload -> the AI reads them in the background -> review.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check } from 'lucide-react';
+import { Camera, Check, Images } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
 import type { Expense, Receipt, ScanStep } from '../../services/expense.service';
@@ -34,7 +34,8 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
   const [drafts, setDrafts] = useState<Awaited<ReturnType<typeof expenseService.openReceipts>>>([]);
   const [steps, setSteps] = useState<ScanStep[]>([]); // what the AI has done so far, the last one in progress
   const [seconds, setSeconds] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
   const currentId = useRef<string | undefined>(receiptId);
 
   const addStep = useCallback((next: ScanStep) => {
@@ -209,21 +210,41 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
           </div>
         ))}
         {files.length < MAX_PHOTOS && (
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="aspect-[3/4] rounded-xl border-2 border-dashed border-muted-300 hover:border-primary-400 flex flex-col items-center justify-center gap-1 text-muted-500"
-          >
-            <Camera className="w-8 h-8 text-primary-600" strokeWidth={1.5} aria-hidden />
-            <span className="text-sm">{files.length ? 'Add another part' : 'Photo of the bill'}</span>
-          </button>
+          <div className="aspect-[3/4] rounded-xl border-2 border-dashed border-muted-300 flex flex-col overflow-hidden text-muted-500">
+            <span className="pt-2 text-center text-xs">{files.length ? 'Add another part' : 'Photo of the bill'}</span>
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              className="flex-1 flex flex-col items-center justify-center gap-1 hover:bg-primary-50"
+            >
+              <Camera className="w-7 h-7 text-primary-600" strokeWidth={1.5} aria-hidden />
+              <span className="text-sm">Take photo</span>
+            </button>
+            <div className="mx-3 border-t border-muted-200" />
+            <button
+              type="button"
+              onClick={() => galleryRef.current?.click()}
+              className="flex-1 flex flex-col items-center justify-center gap-1 hover:bg-primary-50"
+            >
+              <Images className="w-7 h-7 text-primary-600" strokeWidth={1.5} aria-hidden />
+              <span className="text-sm">Gallery</span>
+            </button>
+          </div>
         )}
       </div>
+      {/* capture opens the phone's camera straight away; the second input lets you pick saved photos */}
       <input
-        ref={inputRef}
+        ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
+        hidden
+        onChange={(e) => { pick(e.target.files); e.target.value = ''; }}
+      />
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*"
         multiple
         hidden
         onChange={(e) => { pick(e.target.files); e.target.value = ''; }}
