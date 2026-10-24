@@ -103,3 +103,29 @@ async def test_delete_removes_the_profile_photo_file(client, make_user, upload_d
     r = await client.post("/api/v1/auth/me/delete", json={"password": "Passw0rd!23", "confirm": "DELETE"}, headers=a.headers)
     assert r.status_code == 200
     assert not [p for p in upload_dir.rglob("*") if p.is_file()]
+
+
+async def test_removing_or_replacing_the_profile_photo_deletes_the_old_file(client, make_user, upload_dir):
+    a = await make_user()
+    from PIL import Image
+    import io
+
+    async def upload(colour):
+        img = io.BytesIO()
+        Image.new("RGB", (40, 40), colour).save(img, "JPEG")
+        up = await client.post("/api/v1/media/upload", files={"file": ("me.jpg", img.getvalue(), "image/jpeg")}, headers=a.headers)
+        return up.json()["data"]["url"]
+
+    files = lambda: {p.name for p in upload_dir.rglob("*") if p.is_file()}  # noqa: E731
+    first = await upload((10, 120, 60))
+    assert (await client.patch("/api/v1/auth/me", json={"avatar": first}, headers=a.headers)).status_code == 200
+    with_first = files()
+    second = await upload((200, 30, 30))
+    assert (await client.patch("/api/v1/auth/me", json={"avatar": second}, headers=a.headers)).status_code == 200
+    after_replace = files()
+    assert len(after_replace) == len(with_first) and after_replace != with_first  # the first photo's file is gone
+    # saving the profile without touching the photo keeps it
+    assert (await client.patch("/api/v1/auth/me", json={"bio": "hi"}, headers=a.headers)).status_code == 200
+    assert files() == after_replace
+    assert (await client.patch("/api/v1/auth/me", json={"avatar": ""}, headers=a.headers)).status_code == 200
+    assert not files()
