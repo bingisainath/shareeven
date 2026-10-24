@@ -264,6 +264,68 @@ const privacy: InfoPage = {
   ],
 };
 
+<<<<<<< Updated upstream
 export const INFO_PAGES: InfoPage[] = [about, faq, contact, terms, privacy];
+=======
+const deleteAccount: InfoPage = {
+  slug: 'delete-account',
+  label: 'Delete account',
+  title: 'Delete your ShareEven account',
+  dated: true,
+  intro: `How to delete your ShareEven account and its data, and what happens to it. ShareEven is run by ${OPERATOR.name} ${OPERATOR.form} (${OPERATOR.address}).`,
+  sections: [
+    {
+      heading: 'In the ShareEven app (Android)',
+      body: [[
+        'Open ShareEven and sign in.',
+        'Go to Settings and tap your name at the top to open Account.',
+        'Tap Delete account.',
+        'Enter your password and type DELETE, then tap Delete my account.',
+      ]],
+    },
+    {
+      heading: 'On the website',
+      body: [[
+        'Sign in at shareeven.com.',
+        'Go to Settings, then Account.',
+        'Under Delete account, tap Delete account, enter your password, type DELETE and confirm.',
+      ], 'Before deleting, you can save a copy of your data with Download my data on the same page.'],
+    },
+    {
+      heading: "Can't sign in?",
+      body: [`Write to ${CONTACT.privacy} from the email address on your account and ask us to delete it. We'll confirm it's your account, delete it and reply within 30 days.`],
+    },
+    {
+      heading: 'What is deleted',
+      body: ['Straight away:', [
+        'your profile: name, username, email, photo, bio and payment usernames;',
+        'every phone and browser signed in to the account (they are signed out), with their encryption keys;',
+        'your encrypted chat backup and your settings;',
+        'what your messages said, and the photos, videos, voice notes and files you sent;',
+        'your receipt-scanning settings and store discount rules.',
+      ], 'You leave all your groups. Copies in our server backups are overwritten within 30 days.'],
+    },
+    {
+      heading: 'What is kept',
+      body: [[
+        "Expenses and payments you shared with other people stay, shown as \"Deleted user\", because they are part of other people's balances. So do receipt photos scanned for those expenses.",
+        "Your messages stay in the timeline as deleted, with nothing of what they said, so other people's replies still make sense.",
+        'Records of what you paid for ShareEven Pro (plan, amount, date and payment ID), without your profile, for as long as tax and accounting law requires.',
+      ], 'You can sign up again later with the same email address, as a new account.'],
+    },
+    {
+      heading: 'Delete some of your data and keep your account',
+      body: ['You can delete these yourself at any time, in the app or on the website:', [
+        'A message or file you sent: press and hold it (on the website, open its menu), then tap Delete for everyone. What it said and any photo, video, voice note or file attached are removed from our server straight away, and it shows as deleted for everyone in the chat.',
+        'Your profile photo: Settings → tap your name → Profile → tap your photo → Remove photo. The photo is removed from our server straight away.',
+        'Your name, bio and payment usernames: Settings → tap your name → Profile, then clear or change them.',
+        'An expense you added: open it and tap Delete. It leaves everyone\'s balances at once, but stays in the chat\'s history (marked deleted, with its receipt photo) so it can be restored if it was a mistake, because other people rely on it.',
+      ], `For anything else, or to ask us to delete specific data for you, write to ${CONTACT.privacy} from the email address on your account. We reply within 30 days. Copies in our server backups are overwritten within 30 days.`],
+    },
+  ],
+};
+
+export const INFO_PAGES: InfoPage[] = [about, faq, contact, terms, privacy, deleteAccount];
+>>>>>>> Stashed changes
 
 export const infoPage = (slug: string) => INFO_PAGES.find((p) => p.slug === slug);
