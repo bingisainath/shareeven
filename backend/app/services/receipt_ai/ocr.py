@@ -47,6 +47,7 @@ class OcrPage:
     # Each printed row and where it is on the stored (upright) photo: {"text", "box": [x0, y0, x1, y1]}
     # as fractions of its width and height, so a screen can show that line of the receipt
     lines: list = field(default_factory=list)
+    read_by: str = "server"  # or the name of the OCR agent that read it (remote_ocr.py)
 
 
 def _get_engine():

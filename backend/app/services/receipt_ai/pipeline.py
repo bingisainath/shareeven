@@ -30,7 +30,7 @@ from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, Recei
 from app.models.user import User
 from app.services import billing, media_storage, payments
 from app.services.money import MoneyError, allocate, format_minor, is_supported, parse_decimal, to_minor
-from app.services.receipt_ai import learning, ocr
+from app.services.receipt_ai import learning, ocr, remote_ocr
 from app.services.receipt_ai.base import ExtractionError, ExtractionResult, ReceiptExtractor
 from app.services.receipt_ai.claude import ClaudeExtractor
 from app.services.receipt_ai.images import prepare
@@ -241,15 +241,18 @@ async def _no_step(step: str) -> None:
 
 def _ocr_path_on(receipt: Receipt, extractor: ReceiptExtractor) -> bool:
     return bool(settings.RECEIPT_OCR_MODEL) and receipt.provider == "anthropic" \
-        and hasattr(extractor, "extract_text") and ocr.available()
+        and hasattr(extractor, "extract_text") and (ocr.available() or remote_ocr.enabled())
 
 
 async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_key: str,
                          step: Step = _no_step, hints: str | None = None) -> tuple[list, ExtractionResult | None, dict]:
-    """OCR on our CPU, then the cheap text model. (pages, None, notes) when that didn't work."""
+    """OCR (an agent's CPU or ours), then the cheap text model. (pages, None, notes) when that didn't work."""
     await step("ocr")
     try:
-        pages = await ocr.read_photos(photos)
+        pages = await remote_ocr.read_photos(photos)
+    except remote_ocr.AgentUnavailable as e:
+        logger.info("Receipt %s: %s, reading the photos instead", receipt.id, e)
+        return [], None, {"ocr": {"skipped": str(e)}}
     except Exception:
         logger.exception("Receipt %s: OCR crashed, reading the photos instead", receipt.id)
         return [], None, {"ocr": {"error": "OCR crashed"}}
@@ -257,6 +260,7 @@ async def _read_with_ocr(receipt: Receipt, extractor, photos: list[bytes], api_k
         "seconds": round(sum(p.seconds for p in pages), 2),
         "confidence": round(min(p.confidence for p in pages), 3),
         "unsure_rows": sum(p.unsure_rows for p in pages),
+        "read_by": sorted({p.read_by for p in pages}),
     }}
     # Every photo must be clear; rows count across photos (a second photo may hold just the total)
     unclear = [n for n, p in enumerate(pages, 1) if p.confidence < settings.RECEIPT_OCR_MIN_CONFIDENCE]
@@ -392,7 +396,8 @@ async def read_receipt(receipt: Receipt, extractor: ReceiptExtractor, photos: li
         cheap.pages = pages
         _save_debug(receipt, pages, cheap, cheap)
         return cheap
-    result.usage = _combined_usage("ocr_then_photos", notes, *([cheap] if cheap else []), result)
+    path = "photos" if "skipped" in notes.get("ocr", {}) else "ocr_then_photos"
+    result.usage = _combined_usage(path, notes, *([cheap] if cheap else []), result)
     result.pages = pages  # the photo model's lines are on the same photos the OCR read
     _save_debug(receipt, pages, cheap, result)
     return result

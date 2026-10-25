@@ -18,6 +18,7 @@ from app.api.v1.e2e_keys import router as e2e_keys_router
 from app.api.v1.e2e_v2 import router as e2e_v2_router
 from app.api.v1.e2e_backup import router as e2e_backup_router
 from app.api.v1.billing import router as billing_router
+from app.api.v1.ocr_agent import router as ocr_agent_router
 
 api_router = APIRouter()
 
@@ -69,3 +70,6 @@ api_router.include_router(admin_router)
 
 # ShareEven Pro: prices and features for the Plan page
 api_router.include_router(billing_router)
+
+# Remote receipt OCR: agents (e.g. a laptop) take photos and return their text
+api_router.include_router(ocr_agent_router)

@@ -1,0 +1,23 @@
+# Runs scripts/ocr_agent.py as a user service on the machine that reads receipts (see README.md).
+#   cp shareeven-ocr-agent.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now shareeven-ocr-agent
+#   loginctl enable-linger $USER     # keep it running after you log out
+[Unit]
+Description=ShareEven receipt OCR agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# SHAREEVEN_API, OCR_AGENT_TOKEN and optionally OCR_AGENT_WORKERS / RECEIPT_OCR_THREADS (chmod 600)
+EnvironmentFile=%h/.config/shareeven-ocr-agent.env
+WorkingDirectory=%h/github.com/shareeven/backend
+ExecStart=%h/github.com/shareeven/backend/venv/bin/python scripts/ocr_agent.py
+Restart=on-failure
+RestartSec=10
+# Exit 2 = the server refused the token: restarting won't help
+RestartPreventExitStatus=2
+# OCR yields to whatever you're doing on the laptop
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -75,6 +75,15 @@ class Settings(BaseSettings):
     # An unclear photo (blurry, dark, no receipt text): ask for a new photo instead of paying the photo model
     RECEIPT_OCR_RETAKE_UNCLEAR: bool = True
     RECEIPT_OCR_THREADS: int = 4  # CPU threads for OCR; one photo is read at a time
+    # Remote OCR (receipt_ai/remote_ocr.py): machines running scripts/ocr_agent.py (e.g. a laptop at
+    # home) ask this server for photos over HTTPS and send back the text, so OCR doesn't use this
+    # server's CPU. On when the token is set: a long random secret the agents send. Generate with
+    #   python -c "import secrets;print(secrets.token_urlsafe(32))"
+    RECEIPT_OCR_AGENT_TOKEN: str = ""
+    RECEIPT_OCR_AGENT_TIMEOUT_SECONDS: int = 60  # waiting in the queue + reading; then the fallback below
+    # No agent online (or it didn't answer in time): "photos" = send the photos to the admins' model,
+    # "local" = OCR on this server's CPU after all (needs rapidocr installed here)
+    RECEIPT_OCR_WHEN_AGENT_OFFLINE: str = "photos"
 
     # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
     # really sent; without them (local development) they are written to the backend log instead.

@@ -28,6 +28,11 @@ def production_problems(s=settings) -> list[str]:
         problems.append("MEDIA_ENCRYPTION_KEY is empty (uploads would depend on JWT_SECRET_KEY)")
     if getattr(s, "RECEIPT_OCR_DEBUG_DIR", ""):
         problems.append("RECEIPT_OCR_DEBUG_DIR is set (it writes what receipts say to disk unencrypted)")
+    agent_token = getattr(s, "RECEIPT_OCR_AGENT_TOKEN", "")
+    if agent_token and len(agent_token) < 32:
+        problems.append("RECEIPT_OCR_AGENT_TOKEN is too short (32+ random characters)")
+    if getattr(s, "RECEIPT_OCR_WHEN_AGENT_OFFLINE", "photos") not in ("photos", "local"):
+        problems.append('RECEIPT_OCR_WHEN_AGENT_OFFLINE must be "photos" or "local"')
     if _password(getattr(s, "DATABASE_URL", "")) in DEV_PASSWORDS:
         problems.append("DATABASE_URL uses a development password")
     razorpay = [getattr(s, k, "") for k in ("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET")]

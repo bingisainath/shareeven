@@ -152,6 +152,16 @@ def _opener(prefix: bytes, index: int, sealed: bytes, header: bytes) -> AESGCM:
     raise InvalidTag("No media key opens this file (was MEDIA_ENCRYPTION_KEY changed?)")
 
 
+def seal(data: bytes, purpose: bytes) -> bytes:
+    """Small bytes held briefly outside the uploads folder (e.g. in Redis): nonce | AES-GCM(data)."""
+    nonce = os.urandom(12)
+    return nonce + AESGCM(_key()).encrypt(nonce, data, purpose)
+
+
+def unseal(sealed: bytes, purpose: bytes) -> bytes:
+    return AESGCM(_key()).decrypt(sealed[:12], sealed[12:], purpose)
+
+
 def read_all(path: Path) -> bytes:
     """The whole original file (for small things like receipt photos)."""
     return b"".join(iter_plaintext(path, 0, plain_size(path)))
