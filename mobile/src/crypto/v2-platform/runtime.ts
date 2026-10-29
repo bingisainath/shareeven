@@ -64,7 +64,11 @@ export const v2Runtime = (): Promise<Runtime> | null => current;
  */
 export async function startV2IfSetUp(userId: string): Promise<Runtime | null> {
   if (current) return startV2(userId);
+  return (await isSetUpHere(userId)) ? startV2(userId) : null;
+}
+
+/** This phone was already linked to this account and is on its device list (checked on the phone only). */
+export async function isSetUpHere(userId: string): Promise<boolean> {
   const device = await new EncryptedStore(await openDatabase()).device();
-  if (!device?.listed || device.userId !== userId || device.deviceId === null) return null;
-  return startV2(userId);
+  return !!device?.listed && device.userId === userId && device.deviceId !== null;
 }

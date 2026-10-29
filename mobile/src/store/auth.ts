@@ -13,6 +13,7 @@ import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 import { showAlert } from '../components/common/Dialog';
 import { forgetRecoveryKey } from '../crypto/savedRecoveryKey';
 import { chatDrafts } from '../utils/drafts';
+import { appCache } from '../utils/appCache';
 import { useNotices } from './notices';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
@@ -43,10 +44,15 @@ export const useAuth = create<AuthState>((set, get) => {
   const finishSignIn = async (pair: TokenPair) => {
     await tokens.save(pair.access_token, pair.refresh_token ?? null);
     const user = await authApi.me();
+    appCache.saveUser(user);
     set({ user, status: 'signedIn' });
     socket.start();
     enablePush();
   };
+
+  // The server turned this account down. (A 401 that renewing the token couldn't fix already signed out
+  // through the session-expired handler, unless renewing only failed to connect: then carry on.)
+  const rejected = (error: unknown) => axios.isAxiosError(error) && error.response?.status === 403;
 
   // Logged out from another device: wipe this one's keys and messages, like logging out here
   const loggedOutElsewhere = async () => {
@@ -54,6 +60,7 @@ export const useAuth = create<AuthState>((set, get) => {
     await stopV2().catch(() => undefined);
     await e2eSession.clear();
     await chatDrafts.clearAll();
+    await appCache.clearAll();
     useNotices.getState().clear();
     set({ user: null, status: 'signedOut' });
   };
@@ -64,6 +71,7 @@ export const useAuth = create<AuthState>((set, get) => {
       return;
     }
     socket.stop();
+    appCache.clearAll();
     set({ user: null, status: 'signedOut' });
   });
 
@@ -89,6 +97,7 @@ export const useAuth = create<AuthState>((set, get) => {
     if (e.type !== 'account_suspended') return;
     tokens.clear().then(() => {
       socket.stop();
+      appCache.clearAll();
       set({ user: null, status: 'signedOut' });
       showAlert('Your account was suspended', 'Try signing in to see why and until when.');
     }).catch(() => undefined);
@@ -115,8 +124,27 @@ export const useAuth = create<AuthState>((set, get) => {
         set({ status: 'signedOut' });
         return;
       }
+      const saved = await appCache.user();
+      if (saved) {
+        // Open straight away as last time, and check the sign-in with the server meanwhile
+        set({ user: saved, status: 'signedIn' });
+        socket.start();
+        enablePush();
+        authApi.me().then((user) => {
+          if (get().status !== 'signedIn') return;
+          set({ user });
+          appCache.saveUser(user);
+        }).catch(async (error) => {
+          if (!rejected(error) || get().status !== 'signedIn') return; // offline or a server hiccup: carry on
+          socket.stop();
+          await tokens.clear();
+          set({ user: null, status: 'signedOut' });
+        });
+        return;
+      }
       try {
         const user = await authApi.me();
+        appCache.saveUser(user);
         set({ user, status: 'signedIn' });
         socket.start();
         enablePush();
@@ -171,10 +199,12 @@ export const useAuth = create<AuthState>((set, get) => {
     },
 
     refreshUser: async () => {
-      set({ user: await authApi.me() });
+      const user = await authApi.me();
+      appCache.saveUser(user);
+      set({ user });
     },
 
-    setUser: (user) => set({ user }),
+    setUser: (user) => { appCache.saveUser(user); set({ user }); },
     accountDeleted: async () => {
       await forgetSavedKey();
       await tokens.clear();
@@ -189,6 +219,7 @@ export const useAuth = create<AuthState>((set, get) => {
       await tokens.clear();
       await e2eSession.clear(); // signing in here again means linking it again
       await chatDrafts.clearAll(); // unsent text goes with the sign-in
+      await appCache.clearAll(); // so does what the app showed last time
       useNotices.getState().clear();
       set({ user: null, status: 'signedOut' });
     },

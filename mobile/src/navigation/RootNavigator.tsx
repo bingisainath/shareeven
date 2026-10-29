@@ -1,8 +1,10 @@
 // src/navigation/RootNavigator.tsx
 import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
+import type { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessagesSquare, Settings, Wallet } from 'lucide-react-native';
 import OfflineBanner from '../components/common/OfflineBanner';
 import { useAuth } from '../store/auth';
@@ -41,10 +43,12 @@ import LinkApprovalPrompt from '../components/settings/LinkApprovalPrompt';
 import BlockedPeopleScreen from '../screens/settings/BlockedPeopleScreen';
 import NoticesScreen from '../screens/settings/NoticesScreen';
 import ReportScreen from '../screens/settings/ReportScreen';
+import SupportScreen from '../screens/settings/SupportScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
-const Tab = createBottomTabNavigator<TabParams>();
+// Swipeable tabs (like WhatsApp): a pager with the tab bar at the bottom
+const Tab = createMaterialTopTabNavigator<TabParams>();
 
 const headerStyle = {
   headerTintColor: colors.primary700,
@@ -54,56 +58,66 @@ const headerStyle = {
   contentStyle: { backgroundColor: colors.background },
 };
 
-const Tabs: React.FC = () => {
+const TAB_ICONS = { Chats: MessagesSquare, Expenses: Wallet, Settings } as const;
+
+const BottomTabBar: React.FC<MaterialTopTabBarProps> = ({ state, navigation }) => {
+  const insets = useSafeAreaInsets();
   const unread = useChat(s =>
     // Muted and archived chats don't count (like WhatsApp)
     s.conversations.reduce((sum, c) => sum + (c.unreadCount > 0 && !c.isArchived && !isMuted(c) ? 1 : 0), 0),
   );
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary700,
-        tabBarInactiveTintColor: colors.muted500,
-        tabBarStyle: {
-          backgroundColor: colors.white,
-          borderTopColor: colors.muted200,
-          minHeight: 64,
-          paddingTop: 6,
-        },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-      }}
-    >
-      <Tab.Screen
-        name="Chats"
-        component={ChatListScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <MessagesSquare color={color} size={size} />
-          ),
-          tabBarBadge: unread ? unread : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.primary700 },
-        }}
-      />
-      <Tab.Screen
-        name="Expenses"
-        component={ExpensesHomeScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => <Wallet color={color} size={size} />,
-        }}
-      />
-      <Tab.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Settings color={color} size={size} />
-          ),
-        }}
-      />
-    </Tab.Navigator>
+    <View style={[tabStyles.bar, { paddingBottom: Math.max(insets.bottom, 6) }]} accessibilityRole="tablist">
+      {state.routes.map((route, index) => {
+        const focused = state.index === index;
+        const color = focused ? colors.primary700 : colors.muted500;
+        const Icon = TAB_ICONS[route.name as keyof typeof TAB_ICONS];
+        const badge = route.name === 'Chats' && unread ? unread : 0;
+        const onPress = () => {
+          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+          if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
+        };
+        return (
+          <Pressable key={route.key} onPress={onPress} style={tabStyles.tab} accessibilityRole="tab"
+            accessibilityState={{ selected: focused }} accessibilityLabel={badge ? `${route.name}, ${badge} unread` : route.name}>
+            <View>
+              <Icon color={color} size={24} />
+              {!!badge && (
+                <View style={tabStyles.badge}>
+                  <Text style={tabStyles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[tabStyles.label, { color }]}>{route.name}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 };
+
+const tabStyles = StyleSheet.create({
+  bar: { flexDirection: 'row', backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200, paddingTop: 6 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 52, gap: 2 },
+  label: { fontSize: 11, fontWeight: '700' },
+  badge: { position: 'absolute', top: -4, left: 14, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary700, borderWidth: 1.5, borderColor: colors.white },
+  badgeText: { color: colors.white, fontSize: 10, fontWeight: '700' },
+});
+
+const Tabs: React.FC = () => (
+  <Tab.Navigator
+    tabBarPosition="bottom"
+    tabBar={(props) => <BottomTabBar {...props} />}
+    // Expenses and Settings load when first opened, not with the app
+    screenOptions={{ lazy: true, swipeEnabled: true, sceneStyle: { backgroundColor: colors.background } }}
+    backBehavior="initialRoute"
+  >
+    <Tab.Screen name="Chats" component={ChatListScreen} />
+    <Tab.Screen name="Expenses" component={ExpensesHomeScreen} />
+    <Tab.Screen name="Settings" component={SettingsScreen} />
+  </Tab.Navigator>
+);
 
 const RootNavigator: React.FC = () => {
   const status = useAuth(s => s.status);
@@ -251,6 +265,11 @@ const RootNavigator: React.FC = () => {
             name="Notices"
             component={NoticesScreen}
             options={{ title: 'Notices' }}
+          />
+          <AppStack.Screen
+            name="Support"
+            component={SupportScreen}
+            options={{ title: 'Contact support' }}
           />
           <AppStack.Screen
             name="Report"

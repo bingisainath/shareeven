@@ -12,6 +12,19 @@ async def test_search_never_returns_emails(client, make_user):
     assert all("email" not in u for u in results)
 
 
+async def test_chats_never_show_other_peoples_emails(client, make_user, add_message):
+    # Starting a chat with someone, or reading their messages, mustn't reveal their email either
+    me, other = await make_user(), await make_user()
+    r = await client.post("/api/v1/conversations", json={"kind": "dm", "participant_ids": [other.id]}, headers=me.headers)
+    assert r.status_code == 200
+    assert other.email not in r.text
+    dm = r.json()["data"]["id"]
+    await add_message(dm, other, "hi")
+    r = await client.get(f"/api/v1/conversations/{dm}/messages", headers=me.headers)
+    assert r.status_code == 200 and r.json()["data"]
+    assert other.email not in r.text
+
+
 async def test_search_needs_two_characters(client, make_user):
     me = await make_user()
     assert await _search(client, me, "f") == []

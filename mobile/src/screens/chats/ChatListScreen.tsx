@@ -64,6 +64,8 @@ const ChatListScreen: React.FC = () => {
     ], { cancelable: true });
   };
 
+  // The list from last time shows at once; the server's copy replaces it when it arrives
+  useEffect(() => { if (me?.id) useChat.getState().showSaved(me.id); }, [me?.id]);
   useFocusEffect(useCallback(() => { loadConversations().catch(() => undefined); }, [loadConversations]));
 
   const list = useMemo(() => {

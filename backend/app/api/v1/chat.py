@@ -273,7 +273,6 @@ async def get_messages(
                 "sender": {
                     "id": str(sender.id),
                     "username": sender.username,
-                    "email": sender.email,
                     "avatar": media_storage.sign_url(sender.avatar)
                 } if sender else None
             }
@@ -477,7 +476,6 @@ async def create_conversation(
                 other_user = {
                     "id": str(other_user_obj.id),
                     "username": other_user_obj.username,
-                    "email": other_user_obj.email,
                     "avatar": media_storage.sign_url(other_user_obj.avatar)
                 }
 

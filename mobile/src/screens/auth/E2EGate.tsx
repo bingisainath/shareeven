@@ -19,7 +19,7 @@ import type { LinkHere } from '../../crypto/v2-platform/link';
 import { e2eService } from '../../services/e2e.service';
 import type { MyKeys } from '../../services/e2e.service';
 import { errorMessage, reportLoggedOutElsewhere } from '../../api/client';
-import { startV2 } from '../../crypto/v2-platform/runtime';
+import { isSetUpHere, startV2 } from '../../crypto/v2-platform/runtime';
 import { backupIfDue, restoreFromBackup } from '../../crypto/backupRuntime';
 import { forgetRecoveryKey, hasSavedRecoveryKey, readSavedRecoveryKey, saveErrorMessage, saveRecoveryKey } from '../../crypto/savedRecoveryKey';
 import { syncV2 } from '../../store/chat';
@@ -87,9 +87,10 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [stage, setStage] = useState<Stage>({ name: 'checking' });
   const userId = user?.id;
 
-  const check = useCallback(async () => {
+  /** quiet: the chats are already showing; only leave them if this phone needs linking (again). */
+  const check = useCallback(async (quiet = false) => {
     if (!userId) return;
-    setStage({ name: 'checking' });
+    if (!quiet) setStage({ name: 'checking' });
     try {
       const mine = await e2eService.mine();
       // Version 1 keys from earlier on this phone: only for reading older messages, so optional.
@@ -118,11 +119,28 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         reportLoggedOutElsewhere();
         return;
       }
+      if (quiet) return; // offline, or the server failed for a moment: checked again next time
       setStage({ name: 'error', message: errorMessage(e) });
     }
   }, [userId]);
 
-  useEffect(() => { check(); }, [check]);
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    (async () => {
+      // Linked before: open the chats straight away (older version 1 keys too, they're on this phone)
+      // and check with the server meanwhile. Otherwise wait for the check, which decides what to show.
+      if (await isSetUpHere(userId).catch(() => false)) {
+        await e2eSession.restore(userId);
+        if (!alive) return;
+        setStage({ name: 'ready' });
+        check(true);
+      } else if (alive) {
+        check();
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId, check]);
 
   // Encryption v2 starts in the background once this phone is ready (registers, uploads prekeys)
   useEffect(() => {
@@ -135,7 +153,7 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, [stage.name, userId]);
 
   // Our keys were replaced on another device: link again
-  useEffect(() => e2eSession.onStale(() => { e2eSession.clear().then(check); }), [check]);
+  useEffect(() => e2eSession.onStale(() => { e2eSession.clear().then(() => check()); }), [check]);
 
   if (stage.name === 'ready') return <>{children}</>;
 
@@ -157,7 +175,7 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   if (stage.name === 'error') {
     return (
       <AuthLayout onBack={() => logout()} title="Couldn't check your encryption" subtitle={stage.message}>
-        <Button title="Try again" onPress={check} />
+        <Button title="Try again" onPress={() => check()} />
         {footer}
       </AuthLayout>
     );

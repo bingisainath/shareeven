@@ -22,6 +22,7 @@ import type { ChatInfo, RetryRequest } from '../crypto/v2-platform/chat';
 import type { EnvelopeMeta, LocalMessage, Received } from '../crypto/v2';
 import { showAlert } from '../components/common/Dialog';
 import { clearChatNotifications } from '../notifications/push';
+import { appCache } from '../utils/appCache';
 
 const TYPING_TTL_MS = 6000;
 
@@ -36,6 +37,8 @@ interface ChatState {
   activeId: string | null;
 
   loadConversations: () => Promise<void>;
+  /** Opening the app: show the list saved last time until the server's copy arrives. */
+  showSaved: (userId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
   loadOlder: (conversationId: string) => Promise<void>;
   open: (conversationId: string | null) => void;
@@ -127,6 +130,11 @@ export const useChat = create<ChatState>((set, get) => ({
     }));
     // Read on another device (or here) while this phone was away: their notifications go too
     clearChatNotifications(withPreviews.filter((c) => !c.unreadCount).map((c) => c.id));
+  },
+
+  showSaved: async (userId) => {
+    const saved = await appCache.chats(userId);
+    if (saved?.length && !get().loaded && !get().conversations.length) set({ conversations: saved, loaded: true });
   },
 
   loadMessages: async (conversationId) => {
@@ -564,6 +572,12 @@ export const onServerEvent = (listener: Extra) => {
     extras.delete(listener);
   };
 };
+
+// The list as it stands (after loading, or a live update) is what the app shows when opened next
+useChat.subscribe((s, before) => {
+  const userId = useAuth.getState().user?.id;
+  if (s.loaded && userId && s.conversations !== before.conversations) appCache.saveChats(userId, s.conversations);
+});
 
 // ---- live events
 // This module loads lazily (on first use, after the encryption check): the socket may already be open

@@ -18,6 +18,8 @@ const STATUS_LABELS: Record<MessageStatus, string> = {
 };
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+// Height the action bar needs above a message (px); with less room below the chat's top it opens underneath
+const ACTION_BAR_ROOM = 44;
 
 interface MessageBubbleProps {
   id: string;
@@ -137,6 +139,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const timeOnMedia = visual && mediaType === 'image' && !text;
   const lastPointerType = useRef<string>('mouse');
 
+  // The action bar sits just above the message so it never covers the text. Near the top of the
+  // chat there's no room above (it would be cut off), so it opens just below instead.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const [actionsBelow, setActionsBelow] = useState(false);
+  const toggleActions = (open?: boolean) => setShowActions(was => {
+    const next = open ?? !was;
+    const column = columnRef.current;
+    if (next && !was && column) {
+      const log = column.closest('[role="log"]');
+      setActionsBelow(column.getBoundingClientRect().top - (log?.getBoundingClientRect().top ?? 0) < ACTION_BAR_ROOM);
+    }
+    return next;
+  });
+
   const statusIcons: Record<MessageStatus, React.ReactElement> = {
     sending: <Icon name="clock" size={14} className="text-white/70 animate-pulse" />,
     sent: <Icon name="check" size={14} className="text-white/70" />,
@@ -154,7 +170,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handleBubbleClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('a, video, button') || lastPointerType.current === 'mouse') return;
-    if (hasActions) setShowActions(open => !open);
+    if (hasActions) toggleActions();
   };
 
   return (
@@ -166,7 +182,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         ${className}
       `}
       onPointerDown={(e) => { lastPointerType.current = e.pointerType; }}
-      onPointerEnter={(e) => { lastPointerType.current = e.pointerType; if (e.pointerType === 'mouse' && hasActions) setShowActions(true); }}
+      onPointerEnter={(e) => { lastPointerType.current = e.pointerType; if (e.pointerType === 'mouse' && hasActions) toggleActions(true); }}
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') setShowActions(false); }}
       /* Keyboard: Tab to a message, Enter (or Space) shows its actions, Escape hides them */
       tabIndex={hasActions ? 0 : undefined}
@@ -176,7 +192,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           if (e.key === 'Escape') setShowActions(false);
           return;
         }
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowActions(open => !open); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleActions(); }
         if (e.key === 'Escape') setShowActions(false);
       }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && lastPointerType.current !== 'mouse') setShowActions(false); }}
@@ -191,7 +207,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         />
       )}
 
-      <div className={`relative flex flex-col min-w-0 max-w-[85%] sm:max-w-[75%] ${isSent ? 'items-end' : 'items-start'}`}>
+      <div ref={columnRef} className={`relative flex flex-col min-w-0 max-w-[85%] sm:max-w-[75%] ${isSent ? 'items-end' : 'items-start'}`}>
         {/* Sender name for group chats */}
         {!isSent && isGroup && senderName && (
           <span className="mb-1 ml-3 text-xs font-semibold" style={{ color: senderColor }}>
@@ -451,84 +467,87 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
-        {/* Action bar: quick reactions, reply, edit, delete. Floats over the bubble's top edge
-            so showing it never moves the message or the sender's avatar. */}
+        {/* Action bar: quick reactions, reply, edit, delete. Floats just outside the bubble (above, or
+            below near the top of the chat) so it never hides the text or moves the message. The padding
+            on the side facing the bubble bridges the gap, so moving the mouse onto the bar keeps it open. */}
         {showActions && hasActions && (
-          <div className={`absolute -top-4 z-20 ${isSent ? 'right-2' : 'left-2'} flex items-center gap-0.5 whitespace-nowrap px-1 py-0.5 bg-white border border-muted-200 rounded-full shadow-elevated animate-fade-in`}>
-            {onReact && QUICK_REACTIONS.map(emoji => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => { onReact(emoji); setShowActions(false); }}
-                className="h-7 w-7 flex items-center justify-center text-base rounded-full hover:bg-muted-100 transition-colors"
-                title={`React ${emoji}`}
-              >
-                {emoji}
-              </button>
-            ))}
-            {onReply && (
-              <button
-                type="button"
-                onClick={() => { onReply(); setShowActions(false); }}
-                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
-                title="Reply"
-              >
-                <Icon name="forward" size={16} className="text-muted-500 rotate-180" />
-              </button>
-            )}
-            {onForward && (
-              <button
-                type="button"
-                onClick={() => { onForward(); setShowActions(false); }}
-                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
-                title="Forward"
-                aria-label="Forward"
-              >
-                <Forward className="w-4 h-4 text-muted-500" />
-              </button>
-            )}
-            {onDownload && mediaUrl && (
-              <button
-                type="button"
-                onClick={() => { onDownload(); setShowActions(false); }}
-                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
-                title="Download"
-                aria-label="Download"
-              >
-                <Download className="w-4 h-4 text-muted-500" />
-              </button>
-            )}
-            {isSent && onEdit && (
-              <button
-                type="button"
-                onClick={() => { onEdit(); setShowActions(false); }}
-                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
-                title="Edit"
-              >
-                <Icon name="edit" size={16} className="text-muted-500" />
-              </button>
-            )}
-            {!isSent && onReport && (
-              <button
-                type="button"
-                onClick={() => { onReport(); setShowActions(false); }}
-                className="p-1.5 hover:bg-accent-50 rounded-full transition-colors"
-                title="Report"
-                aria-label="Report"
-              >
-                <Flag className="w-4 h-4 text-muted-500" />
-              </button>
-            )}
-            {isSent && onDelete && (
-              <button
-                type="button"
-                onClick={() => { onDelete(); setShowActions(false); }}
-                className="p-1.5 hover:bg-accent-50 rounded-full transition-colors"
-                title="Delete for everyone"
-              >
-                <Icon name="delete" size={16} className="text-accent-500" />
-              </button>
-            )}
+          <div className={`absolute z-20 ${actionsBelow ? 'top-full pt-1' : 'bottom-full pb-1'} ${isSent ? 'right-0' : 'left-0'}`}>
+            <div className={`flex items-center gap-0.5 whitespace-nowrap px-1 py-0.5 bg-white border border-muted-200 rounded-full shadow-elevated animate-fade-in`}>
+              {onReact && QUICK_REACTIONS.map(emoji => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => { onReact(emoji); setShowActions(false); }}
+                  className="h-7 w-7 flex items-center justify-center text-base rounded-full hover:bg-muted-100 transition-colors"
+                  title={`React ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              {onReply && (
+                <button
+                  type="button"
+                  onClick={() => { onReply(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                  title="Reply"
+                >
+                  <Icon name="forward" size={16} className="text-muted-500 rotate-180" />
+                </button>
+              )}
+              {onForward && (
+                <button
+                  type="button"
+                  onClick={() => { onForward(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                  title="Forward"
+                  aria-label="Forward"
+                >
+                  <Forward className="w-4 h-4 text-muted-500" />
+                </button>
+              )}
+              {onDownload && mediaUrl && (
+                <button
+                  type="button"
+                  onClick={() => { onDownload(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                  title="Download"
+                  aria-label="Download"
+                >
+                  <Download className="w-4 h-4 text-muted-500" />
+                </button>
+              )}
+              {isSent && onEdit && (
+                <button
+                  type="button"
+                  onClick={() => { onEdit(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                  title="Edit"
+                >
+                  <Icon name="edit" size={16} className="text-muted-500" />
+                </button>
+              )}
+              {!isSent && onReport && (
+                <button
+                  type="button"
+                  onClick={() => { onReport(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-accent-50 rounded-full transition-colors"
+                  title="Report"
+                  aria-label="Report"
+                >
+                  <Flag className="w-4 h-4 text-muted-500" />
+                </button>
+              )}
+              {isSent && onDelete && (
+                <button
+                  type="button"
+                  onClick={() => { onDelete(); setShowActions(false); }}
+                  className="p-1.5 hover:bg-accent-50 rounded-full transition-colors"
+                  title="Delete for everyone"
+                >
+                  <Icon name="delete" size={16} className="text-accent-500" />
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

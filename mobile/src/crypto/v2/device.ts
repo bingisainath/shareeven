@@ -90,7 +90,9 @@ export class DeviceManager {
         await this.store.wipe();
         throw new DeviceRemovedError();
       }
-      throw e;
+      // A device that's already set up still opens offline (or while the server has a moment); its
+      // prekeys are topped up the next time the app comes to the foreground
+      if (!(device.listed && isTransientHttpError(e))) throw e;
     }
 
     if (!device.listed) {

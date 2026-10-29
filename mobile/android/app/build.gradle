@@ -88,8 +88,8 @@ android {
         applicationId "com.shareeven.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11
-        versionName "0.9.9-beta"
+        versionCode 13
+        versionName "0.9.11-beta"
     }
     // Release builds for Google Play are signed with the upload key. Its path and passwords live in
     // ~/.gradle/gradle.properties (SHAREEVEN_UPLOAD_*), never in the repo.
