@@ -7,6 +7,7 @@ Notices from the ShareEven team to one person (Settings → Notices, plus a push
   did: that keeps reporters safe from retaliation.
 - A report update tells the reporter the review is done and whether action was taken, never which
   action (the other person's privacy).
+- A support reply is the team's answer to a support request.
 """
 
 import logging
@@ -54,6 +55,15 @@ def report_update(reporter_id: uuid.UUID, outcome: str, reported_name: Optional[
         body = (f"Thanks for your report{about}. We reviewed it and didn't find a breach of our rules this time."
                 " You can still block anyone you don't want to hear from.")
     return AccountNotice(user_id=reporter_id, kind="report_update", title=UPDATE_TITLE, body=body, reason=outcome, report_id=report_id)
+
+
+SUPPORT_TITLE = "Reply from ShareEven support"
+
+
+def support_reply(user_id: uuid.UUID, subject: str, reply: str) -> AccountNotice:
+    """The team answered a support request: the answer itself, under the request's subject."""
+    return AccountNotice(user_id=user_id, kind="support_reply", title=SUPPORT_TITLE,
+                         body=f"About “{subject}”: {reply.strip()}")
 
 
 def view(n: AccountNotice) -> dict:

@@ -61,7 +61,7 @@ class Report(Base):
 
 
 REPORT_OUTCOMES = ("action_taken", "no_violation")
-NOTICE_KINDS = ("warning", "report_update")
+NOTICE_KINDS = ("warning", "report_update", "support_reply")
 
 
 class AccountNotice(Base):
@@ -69,6 +69,7 @@ class AccountNotice(Base):
     A message from the ShareEven team to one person, shown in the app under Notices:
     - warning: an admin warned them (says which rule and why; never who reported them)
     - report_update: a report they made was reviewed (the outcome only, never the penalty)
+    - support_reply: the team answered a support request they sent
     """
     __tablename__ = "account_notices"
 

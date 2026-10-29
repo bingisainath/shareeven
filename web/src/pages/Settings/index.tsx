@@ -17,6 +17,7 @@ import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
+import { ContactSupport } from '../../components/organisms/SupportSettings';
 import { NoticesSection } from '../../components/organisms/Notices';
 import PlanSettings from '../../components/organisms/PlanSettings';
 import { loadPlan } from '../../services/billing.service';
@@ -54,6 +55,7 @@ const SECTIONS: Section[] = [
   { slug: 'discounts', icon: Store, label: 'Store discounts', hint: 'Your personal store offers' },
   { slug: 'blocked', icon: Ban, label: 'Blocked people', hint: "People who can't message you" },
   { slug: 'notices', icon: Inbox, label: 'Notices', hint: 'Messages from the ShareEven team' },
+  { slug: 'support', icon: LifeBuoy, label: 'Contact support', hint: 'Report a problem or ask us anything; see our replies' },
   { slug: 'help', icon: HelpCircle, label: 'Help & about', hint: 'FAQ, contact us, terms and privacy' },
 ];
 
@@ -301,6 +303,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
             {section === 'discounts' && <StoreDiscountSettings />}
             {section === 'blocked' && <BlockedPeopleSettings />}
             {section === 'notices' && <NoticesSection />}
+            {section === 'support' && <ContactSupport />}
             {section === 'help' && <HelpSection />}
           </div>
         </div>
@@ -343,6 +346,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
           <CurrencyRow />
           {link('blocked')}
           {link('notices')}
+          {link('support')}
           {link('help')}
           {user.is_app_admin && (
             <Link to="/admin" className={rowClass}>

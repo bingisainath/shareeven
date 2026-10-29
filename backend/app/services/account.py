@@ -32,6 +32,7 @@ from app.models.message_reaction import MessageReaction
 from app.models.message_receipt import MessageReceipt
 from app.models.receipt import Receipt, StoreDiscountRule
 from app.models.safety import AccountNotice, UserBlock
+from app.models.support import SupportTicket
 from app.models.user import User
 from app.services import expense_service, media_storage
 
@@ -74,6 +75,7 @@ async def export_data(db: AsyncSession, user: User) -> dict:
     receipts = (await db.execute(select(Receipt).where(Receipt.uploaded_by == uid).order_by(Receipt.created_at))).scalars().all()
     discounts = (await db.execute(select(StoreDiscountRule).where(StoreDiscountRule.owner_id == uid))).scalars().all()
     notices = (await db.execute(select(AccountNotice).where(AccountNotice.user_id == uid).order_by(AccountNotice.created_at))).scalars().all()
+    tickets = (await db.execute(select(SupportTicket).where(SupportTicket.user_id == uid).order_by(SupportTicket.created_at))).scalars().all()
 
     def message_view(m: Message) -> dict:
         encrypted = (m.text or "").startswith(media_storage.V2_MARKER)
@@ -119,6 +121,10 @@ async def export_data(db: AsyncSession, user: User) -> dict:
             "read_by_model": r.model,
         } for r in receipts],
         "notices_from_shareeven": [{"kind": n.kind, "title": n.title, "body": n.body, "sent_at": _iso(n.created_at)} for n in notices],
+        "support_requests": [{
+            "category": t.category, "subject": t.subject, "message": t.message, "status": t.status,
+            "sent_at": _iso(t.created_at), "reply": t.reply, "replied_at": _iso(t.replied_at),
+        } for t in tickets],
         "settings": {
             "store_discounts": [{"store": d.store_name, "percent": float(d.percent)} for d in discounts],
         },
@@ -186,7 +192,7 @@ async def delete_account(db: AsyncSession, user: User) -> dict:
         (E2EOneTimePreKey, E2EOneTimePreKey.user_id), (KeyLinkRequest, KeyLinkRequest.user_id),
         (PreviousUserKeys, PreviousUserKeys.user_id), (UserKeys, UserKeys.user_id),
         (UserAISettings, UserAISettings.user_id), (StoreDiscountRule, StoreDiscountRule.owner_id),
-        (AccountNotice, AccountNotice.user_id),
+        (AccountNotice, AccountNotice.user_id), (SupportTicket, SupportTicket.user_id),
     ):
         await db.execute(delete(model).where(column == uid))
     await db.execute(delete(E2EEnvelope).where(or_(E2EEnvelope.sender_user_id == uid, E2EEnvelope.recipient_user_id == uid)))

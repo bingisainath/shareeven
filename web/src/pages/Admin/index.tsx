@@ -6,10 +6,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Sparkles, Trash2, Undo2, Users, X } from 'lucide-react';
+import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LifeBuoy, LogOut, ScanLine, Search, ShieldCheck, Sparkles, Trash2, Undo2, Users, X } from 'lucide-react';
 import { useAuth } from '../../app/AuthProvider';
 import { BrandMark } from '../../components/organisms/AuthLayout';
 import { ReportsReview } from '../../components/organisms/SafetySettings';
+import { SupportInbox } from '../../components/organisms/SupportSettings';
 import DailyBars from '../../components/admin/DailyBars';
 import { AdminAISettings } from '../../components/expenses/ExpenseSettingsSections';
 import AdminBilling from '../../components/admin/AdminBilling';
@@ -21,12 +22,13 @@ import { parseApiError } from '../../utils/apiError';
 import { avatarTone, PERSON_SHAPES } from '../../utils/avatarTone';
 import { formatPrice } from '../../utils/plans';
 
-type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'billing' | 'activity';
+type Tab = 'overview' | 'people' | 'reports' | 'support' | 'receipt-ai' | 'billing' | 'activity';
 
 const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'people', label: 'People', icon: Users },
   { id: 'reports', label: 'Reports', icon: Flag },
+  { id: 'support', label: 'Support', icon: LifeBuoy },
   { id: 'receipt-ai', label: 'Receipt AI', icon: ScanLine },
   { id: 'billing', label: 'Pro & payments', icon: Sparkles },
   { id: 'activity', label: 'Admin log', icon: History },
@@ -39,6 +41,7 @@ const nameOf = (u: { name: string | null; username: string }) => u.name || u.use
 const ACTION_LABELS: Record<string, string> = {
   view_user: 'Viewed account', suspend: 'Suspended', unsuspend: 'Lifted suspension', sign_out: 'Signed out everywhere',
   delete_account: 'Deleted account', resolve_report: 'Resolved report', warn: 'Warned',
+  support_reply: 'Answered support request', support_close: 'Closed support request',
   ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed the app scan limit',
   scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans', plan_changed: 'Changed the Pro plan',
   pro_granted: 'Gave Pro', pro_ended: 'Ended Pro',
@@ -90,6 +93,7 @@ const AdminPage: React.FC = () => {
         {tab === 'overview' && <OverviewTab />}
         {tab === 'people' && <PeopleTab openUser={openUser} setOpenUser={setOpenUser} />}
         {tab === 'reports' && <ReportsReview onOpenUser={showUser} />}
+        {tab === 'support' && <SupportInbox onOpenUser={showUser} />}
         {tab === 'receipt-ai' && <AdminAISettings />}
         {tab === 'billing' && <AdminBilling />}
         {tab === 'activity' && <ActivityTab onOpenUser={showUser} />}

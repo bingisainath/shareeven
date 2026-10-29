@@ -5,7 +5,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ban, Bell, ChevronRight, Coins, HelpCircle, Inbox, KeyRound, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Sparkles, Store } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, HelpCircle, Inbox, KeyRound, LifeBuoy, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Sparkles, Store } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
 import { SettingsCard, SettingsRow } from '../../components/settings/SettingsUI';
@@ -133,6 +133,7 @@ const SettingsScreen: React.FC = () => {
           <SettingsRow icon={Ban} label="Blocked people" hint="People who can't message you" onPress={() => navigation.navigate('BlockedPeople')} />
           <SettingsRow icon={Inbox} label="Notices" hint="Messages from the ShareEven team"
             badge={unreadNotices ? { text: `${unreadNotices} new`, tone: 'warn' } : undefined} onPress={() => navigation.navigate('Notices')} />
+          <SettingsRow icon={LifeBuoy} label="Contact support" hint="Report a problem or ask us anything; see our replies" onPress={() => navigation.navigate('Support')} />
           <SettingsRow icon={HelpCircle} label="Help & about" hint="FAQ, contact us, terms and privacy" onPress={() => navigation.navigate('Help')} />
         </SettingsCard>
         <CurrencyPicker visible={pickingCurrency} value={user.display_currency || ''} offLabel="Off (original currencies only)"

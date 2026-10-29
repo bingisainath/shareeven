@@ -30,7 +30,7 @@ class Limit:
     message: str = "Too many attempts. Try again in {wait}."
 
 
-MINUTE, HOUR = 60, 3600
+MINUTE, HOUR, DAY = 60, 3600, 86400
 
 # Sign-in and account recovery (per IP address, and per account where one is named)
 LOGIN_PER_IP = Limit("login-ip", 30, 15 * MINUTE)
@@ -50,6 +50,7 @@ NEW_CHATS_PER_USER = Limit("new-chat", 30, HOUR, "You've started a lot of chats.
 DATA_EXPORTS_PER_USER = Limit("export", 5, HOUR, "You've downloaded your data a few times already. Try again in {wait}.")
 DELETE_ACCOUNT_PER_USER = Limit("delete-account", 5, HOUR)
 REPORTS_PER_USER = Limit("report", 20, HOUR, "You've sent a lot of reports. Try again in {wait}.")
+SUPPORT_PER_USER = Limit("support", 10, DAY, "You've sent a lot of support requests today. We'll answer those first; try again in {wait}.")
 MESSAGES_PER_USER = Limit("message", 40, 10, "You're sending messages too fast. Wait a moment.")
 
 

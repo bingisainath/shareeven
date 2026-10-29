@@ -18,7 +18,7 @@ export const NoticesSection: React.FC = () => {
     return (
       <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-500">
         <Inbox className="w-8 h-8 text-muted-300" />
-        <p className="text-sm">No notices. Warnings and updates on reports you make appear here.</p>
+        <p className="text-sm">No notices. Replies to your support requests, updates on reports you make, and warnings appear here.</p>
       </div>
     );
   }

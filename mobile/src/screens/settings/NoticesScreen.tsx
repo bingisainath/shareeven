@@ -21,7 +21,7 @@ const NoticesScreen: React.FC = () => {
     <ScrollView contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
       {loaded && !notices.length && (
-        <Empty icon={Inbox} title="No notices" text="Warnings and updates on reports you make appear here." />
+        <Empty icon={Inbox} title="No notices" text="Replies to your support requests, updates on reports you make, and warnings appear here." />
       )}
       {notices.map((n) => {
         const warning = n.kind === 'warning';
